@@ -27,6 +27,7 @@
 #include "NullHttpTransaction.h"
 #include "nsServiceManagerUtils.h"
 #include "mozilla/net/NeckoChannelParams.h"  // For HttpActivityArgs.
+#include "mozilla/net/happy_eyeballs_glue.h"
 
 // Log on level :5, instead of default :4.
 #undef LOG
@@ -74,6 +75,10 @@ DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
   LOG(("Creating DnsAndConnectSocket [this=%p trans=%p ent=%s key=%s]\n", this,
        trans, mConnInfo->Origin(), mConnInfo->HashKey().get()));
 
+  // Initialize Happy Eyeballs state machine instance with origin and port.
+  (void)happy_eyeballs_new(&mHappyEyeballs, &mConnInfo->GetOrigin(),
+                           static_cast<uint16_t>(mConnInfo->OriginPort()));
+
   if (mConnInfo->UsingProxy()) {
     mIsHttp3 = mConnInfo->IsHttp3ProxyConnection();
   } else {
@@ -104,6 +109,12 @@ DnsAndConnectSocket::~DnsAndConnectSocket() {
   // the nsHttpConnectionMgr active connection number.
   mPrimaryTransport.MaybeSetConnectingDone();
   mBackupTransport.MaybeSetConnectingDone();
+
+  // Release Happy Eyeballs instance.
+  if (mHappyEyeballs) {
+    happy_eyeballs_release(mHappyEyeballs);
+    mHappyEyeballs = nullptr;
+  }
 }
 
 nsresult DnsAndConnectSocket::Init(ConnectionEntry* ent) {

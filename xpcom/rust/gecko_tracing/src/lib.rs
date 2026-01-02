@@ -3,9 +3,17 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 //! This provides a way to set up rust tracing "layers".
+
+use tracing_subscriber::EnvFilter;
 pub fn initialize_tracing() {
     use tracing_subscriber::prelude::*;
     tracing_subscriber::registry()
+        // TODO: Hack
+        .with(
+            tracing_subscriber::fmt::layer()
+                .compact()
+                .with_filter(EnvFilter::from_default_env()),
+        )
         // The application-services tracing-support library, which directs tracing from some crates
         // back into the application for logging or other diagnostic purposes.
         .with(tracing_support::simple_event_layer())
