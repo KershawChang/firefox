@@ -79,6 +79,15 @@ DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
   (void)happy_eyeballs_new(&mHappyEyeballs, &mConnInfo->GetOrigin(),
                            static_cast<uint16_t>(mConnInfo->OriginPort()));
 
+  // Prime the state machine: process with no input to emit initial events.
+  if (mHappyEyeballs) {
+    HappyEyeballsEvent heEvent;
+    nsTArray<uint8_t> heData;
+    (void)happy_eyeballs_process(const_cast<HappyEyeballs*>(mHappyEyeballs),
+                                 HappyEyeballsInputKind::None, nullptr,
+                                 nullptr, 0, &heEvent, &heData);
+  }
+
   if (mConnInfo->UsingProxy()) {
     mIsHttp3 = mConnInfo->IsHttp3ProxyConnection();
   } else {

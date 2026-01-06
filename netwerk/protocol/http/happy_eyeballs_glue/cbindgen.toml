@@ -12,7 +12,7 @@ braces = "SameLine"
 line_length = 100
 tab_width = 2
 language = "C++"
-includes = ["nsError.h", "nsString.h"]
+includes = ["nsError.h", "nsString.h", "nsTArray.h"]
 namespaces = ["mozilla", "net"]
 
 # Wrap generated declarations in mozilla::net opened above and closed below.
@@ -22,3 +22,6 @@ trailer = ""
 [export]
 exclude = ["HappyEyeballs"]
 item_types = ["globals", "enums", "structs", "unions", "typedefs", "opaque", "functions", "constants"]
+
+[export.rename]
+"ThinVec" = "nsTArray"

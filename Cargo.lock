@@ -2930,7 +2930,7 @@ dependencies = [
 [[package]]
 name = "happy-eyeballs"
 version = "0.1.0"
-source = "git+https://github.com/mxinden/happy-eyeballs?branch=master#5aa7b4cbedf18f2595208577987803402441fbbe"
+source = "git+https://github.com/mxinden/happy-eyeballs?branch=master#0b45d05269994bea70b2b3623e41336b04a11139"
 dependencies = [
  "tracing",
 ]
@@ -2942,6 +2942,7 @@ dependencies = [
  "happy-eyeballs",
  "nserror",
  "nsstring",
+ "thin-vec",
  "tracing",
  "tracing-subscriber",
  "xpcom",
