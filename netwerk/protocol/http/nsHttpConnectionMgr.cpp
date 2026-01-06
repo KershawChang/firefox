@@ -2167,7 +2167,7 @@ void nsHttpConnectionMgr::AbortAndCloseAllConnections(int32_t, ARefBase*) {
     ent->CancelAllTransactions(NS_ERROR_ABORT);
 
     // Close all half open tcp connections.
-    ent->CloseAllDnsAndConnectSockets();
+    ent->CloseAllConnectionAttempts();
 
     MOZ_ASSERT(!ent->mDoNotDestroy);
     iter.Remove();

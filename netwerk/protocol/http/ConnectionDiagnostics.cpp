@@ -70,7 +70,7 @@ void ConnectionEntry::PrintDiagnostics(nsCString& log,
   log.AppendPrintf("   Active Conns Length = %zu\n", mActiveConns.Length());
   log.AppendPrintf("   Idle Conns Length = %zu\n", mIdleConns.Length());
   log.AppendPrintf("   DnsAndSock Length = %zu\n",
-                   mDnsAndConnectSockets.Length());
+                   mConnectionAttemptPool->Length());
   log.AppendPrintf("   Coalescing Keys Length = %zu\n",
                    mCoalescingKeys.Length());
   log.AppendPrintf("   Spdy using = %d\n", mUsingSpdy);
@@ -84,10 +84,7 @@ void ConnectionEntry::PrintDiagnostics(nsCString& log,
     log.AppendPrintf("   :: Idle Connection #%u\n", i);
     mIdleConns[i]->PrintDiagnostics(log);
   }
-  for (i = 0; i < mDnsAndConnectSockets.Length(); ++i) {
-    log.AppendPrintf("   :: Half Open #%u\n", i);
-    mDnsAndConnectSockets[i]->PrintDiagnostics(log);
-  }
+  mConnectionAttemptPool->PrintDiagnostics(log);
 
   mPendingQ.PrintDiagnostics(log);
 

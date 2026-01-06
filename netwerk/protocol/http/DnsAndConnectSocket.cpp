@@ -39,8 +39,8 @@ namespace mozilla {
 namespace net {
 
 //////////////////////// DnsAndConnectSocket
-NS_IMPL_ADDREF(DnsAndConnectSocket)
-NS_IMPL_RELEASE(DnsAndConnectSocket)
+NS_IMPL_ADDREF_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
+NS_IMPL_RELEASE_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
 
 NS_INTERFACE_MAP_BEGIN(DnsAndConnectSocket)
   NS_INTERFACE_MAP_ENTRY(nsISupportsWeakReference)
@@ -66,11 +66,7 @@ DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
                                          nsAHttpTransaction* trans,
                                          uint32_t caps, bool speculative,
                                          bool urgentStart)
-    : mTransaction(trans),
-      mCaps(caps),
-      mSpeculative(speculative),
-      mUrgentStart(urgentStart),
-      mConnInfo(ci) {
+    : ConnectionAttempt(ci, trans, caps, speculative, urgentStart) {
   MOZ_ASSERT(ci && trans, "constructor with null arguments");
   LOG(("Creating DnsAndConnectSocket [this=%p trans=%p ent=%s key=%s]\n", this,
        trans, mConnInfo->Origin(), mConnInfo->HashKey().get()));
@@ -84,8 +80,8 @@ DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
     HappyEyeballsEvent heEvent;
     nsTArray<uint8_t> heData;
     (void)happy_eyeballs_process(const_cast<HappyEyeballs*>(mHappyEyeballs),
-                                 HappyEyeballsInputKind::None, nullptr,
-                                 nullptr, 0, &heEvent, &heData);
+                                 HappyEyeballsInputKind::None, nullptr, nullptr,
+                                 0, &heEvent, &heData);
   }
 
   if (mConnInfo->UsingProxy()) {
@@ -321,7 +317,7 @@ nsresult DnsAndConnectSocket::SetupEvent(SetupEvents event) {
     RefPtr<ConnectionEntry> ent =
         gHttpHandler->ConnMgr()->FindConnectionEntry(mConnInfo);
     if (ent) {
-      ent->RemoveDnsAndConnectSocket(this, false);
+      ent->RemoveConnectionAttempt(this, false);
     }
     return rv;
   }

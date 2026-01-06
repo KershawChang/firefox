@@ -60,6 +60,20 @@ function regiisterServerNamePathHandler(server, path) {
   });
 }
 
+add_task(async function test_http_1() {
+  let httpserv = new HttpServer();
+  let content = "ok";
+  httpserv.registerPathHandler("/", function handler(metadata, response) {
+    response.setHeader("Content-Length", `${content.length}`);
+    response.bodyOutputStream.write(content, content.length);
+  });
+  httpserv.start(-1);
+
+  let chan = makeChan(`http://localhost:${httpserv.identity.primaryPort}/`);
+  let [, response] = await channelOpenPromise(chan);
+  Assert.equal(response, content);
+}).only();
+
 add_task(async function test_dual_stack() {
   let httpserv = new HttpServer();
   let content = "ok";
