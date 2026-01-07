@@ -25,3 +25,5 @@ item_types = ["globals", "enums", "structs", "unions", "typedefs", "opaque", "fu
 
 [export.rename]
 "ThinVec" = "nsTArray"
+"InputKind" = "HappyEyeballsInputKind"
+"Output" = "HappyEyeballsEvent"
