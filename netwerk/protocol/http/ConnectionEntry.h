@@ -14,6 +14,8 @@
 namespace mozilla {
 namespace net {
 
+class HappyEyeballs;
+
 // ConnectionEntry
 //
 // nsHttpConnectionMgr::mCT maps connection info hash key to ConnectionEntry
@@ -240,6 +242,9 @@ class ConnectionEntry : public SupportsWeakPtr {
   nsCString mOriginFrameHashKey;
 
   bool mRetriedDifferentIPFamilyForHttp3 = false;
+
+    // Owned HappyEyeballs instance shared by sockets for this entry.
+    const HappyEyeballs* mHappyEyeballs = nullptr;
 };
 
 }  // namespace net

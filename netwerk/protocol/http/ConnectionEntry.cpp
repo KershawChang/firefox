@@ -19,6 +19,7 @@
 #include "mozilla/StaticPrefs_network.h"
 #include "nsHttpHandler.h"
 #include "mozilla/net/neqo_glue_ffi_generated.h"
+#include "mozilla/net/happy_eyeballs_glue.h"
 
 namespace mozilla {
 namespace net {
@@ -32,6 +33,10 @@ ConnectionEntry::~ConnectionEntry() {
   MOZ_ASSERT(!PendingQueueLength());
   MOZ_ASSERT(!UrgentStartQueueLength());
   MOZ_ASSERT(!mDoNotDestroy);
+
+  if (mHappyEyeballs) {
+    happy_eyeballs_release(mHappyEyeballs);
+  }
 }
 
 ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
@@ -41,7 +46,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
       mPreferIPv4(false),
       mPreferIPv6(false),
       mUsedForConnection(false),
-      mDoNotDestroy(false) {
+        mDoNotDestroy(false) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
   // mConnectionAttemptPool = new ConnectionAttemptPool(mConnInfo);

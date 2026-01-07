@@ -115,11 +115,7 @@ DnsAndConnectSocket::~DnsAndConnectSocket() {
   mPrimaryTransport.MaybeSetConnectingDone();
   mBackupTransport.MaybeSetConnectingDone();
 
-  // Release Happy Eyeballs instance.
-  if (mHappyEyeballs) {
-    happy_eyeballs_release(mHappyEyeballs);
-    mHappyEyeballs = nullptr;
-  }
+  // HappyEyeballs is owned by ConnectionEntry; nothing to release here.
 }
 
 nsresult DnsAndConnectSocket::Init(ConnectionEntry* ent) {

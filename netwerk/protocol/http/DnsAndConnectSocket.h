@@ -228,7 +228,6 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
   bool mFreeToUse = true;
 
   RefPtr<nsHttpConnectionInfo> mConnInfo;
-  const HappyEyeballs* mHappyEyeballs = nullptr;
   nsCOMPtr<nsITimer> mSynTimer;
   BackupTransportSetup mBackupTransport;
 
