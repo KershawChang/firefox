@@ -2930,7 +2930,7 @@ dependencies = [
 [[package]]
 name = "happy-eyeballs"
 version = "0.1.0"
-source = "git+https://github.com/mxinden/happy-eyeballs?branch=master#4897d85e4b3d05eef7c54519bf46899a945c5c42"
+source = "git+https://github.com/mxinden/happy-eyeballs?branch=master#92a3c5a869d391f4531bbb9056d7455df8c371de"
 dependencies = [
  "tracing",
 ]
