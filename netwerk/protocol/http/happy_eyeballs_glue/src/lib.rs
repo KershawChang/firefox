@@ -12,16 +12,16 @@ pub struct HappyEyeballs {
 }
 
 impl HappyEyeballs {
-    fn new(origin: String, port: u16) -> Self {
+    fn new(origin: &str, port: u16) -> Result<Self, happy_eyeballs::ConstructorError> {
         tracing::debug!(
             "HappyEyeballs::new called with origin: {}, port: {}",
             origin,
             port
         );
-        Self {
+        Ok(Self {
             refcnt: unsafe { AtomicRefcnt::new() },
-            inner: happy_eyeballs::HappyEyeballs::new(origin, port),
-        }
+            inner: happy_eyeballs::HappyEyeballs::new(origin, port)?,
+        })
     }
 
     fn process(
@@ -44,20 +44,26 @@ impl HappyEyeballs {
                 let name = happy_eyeballs::TargetName::from(host.as_str());
                 if addr_len == 0 {
                     let inner = match input_kind {
-                        InputKind::DnsResponseA =>
-                            happy_eyeballs::DnsResponseInner::A(Ok(Vec::new())),
-                        InputKind::DnsResponseAaaa =>
-                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(Vec::new())),
+                        InputKind::DnsResponseA => {
+                            happy_eyeballs::DnsResponseInner::A(Ok(Vec::new()))
+                        }
+                        InputKind::DnsResponseAaaa => {
+                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(Vec::new()))
+                        }
                         _ => unreachable!(),
                     };
                     Some(happy_eyeballs::Input::DnsResponse(
-                        happy_eyeballs::DnsResponse { target_name: name, inner },
+                        happy_eyeballs::DnsResponse {
+                            target_name: name,
+                            inner,
+                        },
                     ))
                 } else {
                     if addr_bytes.is_null() {
                         return NS_ERROR_UNEXPECTED;
                     }
-                    let slice = unsafe { std::slice::from_raw_parts(addr_bytes, addr_len as usize) };
+                    let slice =
+                        unsafe { std::slice::from_raw_parts(addr_bytes, addr_len as usize) };
                     let inner = match input_kind {
                         InputKind::DnsResponseA => {
                             if slice.len() % 4 != 0 {
@@ -86,7 +92,10 @@ impl HappyEyeballs {
                         _ => unreachable!(),
                     };
                     Some(happy_eyeballs::Input::DnsResponse(
-                        happy_eyeballs::DnsResponse { target_name: name, inner },
+                        happy_eyeballs::DnsResponse {
+                            target_name: name,
+                            inner,
+                        },
                     ))
                 }
             }
@@ -94,8 +103,13 @@ impl HappyEyeballs {
 
         let out = self.inner.process(input, std::time::Instant::now());
         match out {
-            Some(happy_eyeballs::Output::SendDnsQuery { hostname: _hostname, record_type }) => {
-                *ret_event = Output::SendDnsQuery { record_type: record_type.into() };
+            Some(happy_eyeballs::Output::SendDnsQuery {
+                hostname: _hostname,
+                record_type,
+            }) => {
+                *ret_event = Output::SendDnsQuery {
+                    record_type: record_type.into(),
+                };
             }
             Some(happy_eyeballs::Output::Timer { duration, .. }) => {
                 *ret_event = Output::Timer {
@@ -139,12 +153,14 @@ pub extern "C" fn happy_eyeballs_new(
             (&*origin).to_utf8().to_string()
         }
     };
+    let happy_eyeballs = match HappyEyeballs::new(origin_str.as_str(), port) {
+        Ok(he) => he,
+        Err(_) => return NS_ERROR_UNEXPECTED,
+    };
     unsafe {
-        xpcom::RefPtr::from_raw(Box::into_raw(Box::new(HappyEyeballs::new(
-            origin_str, port,
-        ))))
-        .unwrap()
-        .forget(result)
+        xpcom::RefPtr::from_raw(Box::into_raw(Box::new(happy_eyeballs)))
+            .unwrap()
+            .forget(result)
     };
     NS_OK
 }
@@ -209,14 +225,7 @@ pub extern "C" fn happy_eyeballs_process(
     ret_event: &mut Output,
     data: &mut ThinVec<u8>,
 ) -> nsresult {
-    he.process(
-        input_kind,
-        hostname,
-        addr_bytes,
-        addr_len,
-        ret_event,
-        data,
-    )
+    he.process(input_kind, hostname, addr_bytes, addr_len, ret_event, data)
 }
 
 #[no_mangle]

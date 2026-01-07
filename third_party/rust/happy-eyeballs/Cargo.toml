@@ -30,9 +30,17 @@ path = "src/lib.rs"
 name = "integration"
 path = "tests/integration.rs"
 
+[dependencies.thiserror]
+version = "2.0.12"
+default-features = false
+
 [dependencies.tracing]
 version = "0.1"
 features = ["attributes"]
+default-features = false
+
+[dependencies.url]
+version = "2.5.7"
 default-features = false
 
 [dev-dependencies.tracing]
