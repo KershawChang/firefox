@@ -1,8 +1,8 @@
 use nserror::{nsresult, NS_ERROR_UNEXPECTED, NS_OK};
 use nsstring::nsACString;
-use thin_vec::ThinVec;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::ptr;
+use thin_vec::ThinVec;
 use xpcom::{AtomicRefcnt, RefCounted};
 
 #[repr(C)]
@@ -50,40 +50,25 @@ pub extern "C" fn happy_eyeballs_new(
 }
 
 #[no_mangle]
-pub extern "C" fn happy_eyeballs_release(ptr: *const HappyEyeballs) {
-    if ptr.is_null() {
-        return;
-    }
-    unsafe {
-        let obj = &*ptr;
-        let rc = obj.refcnt.dec();
-        if rc == 0 {
-            drop(Box::from_raw(ptr as *mut HappyEyeballs));
-        }
+pub unsafe extern "C" fn happy_eyeballs_release(happy_eyeballs: &HappyEyeballs) {
+    let rc = happy_eyeballs.refcnt.dec();
+    if rc == 0 {
+        drop(Box::from_raw(ptr::from_ref(happy_eyeballs).cast_mut()));
     }
 }
 
 #[no_mangle]
-pub extern "C" fn happy_eyeballs_addref(ptr: *const HappyEyeballs) {
-    if ptr.is_null() {
-        return;
-    }
-    unsafe {
-        let obj = &*ptr;
-        obj.refcnt.inc();
-    }
+pub unsafe extern "C" fn happy_eyeballs_addref(happy_eyeballs: &HappyEyeballs) {
+    happy_eyeballs.refcnt.inc();
 }
 
 // xpcom::RefPtr support
 unsafe impl RefCounted for HappyEyeballs {
     unsafe fn addref(&self) {
-        self.refcnt.inc();
+        happy_eyeballs_addref(self);
     }
     unsafe fn release(&self) {
-        let rc = self.refcnt.dec();
-        if rc == 0 {
-            drop(Box::from_raw(self as *const _ as *mut HappyEyeballs));
-        }
+        happy_eyeballs_release(self);
     }
 }
 
@@ -148,10 +133,20 @@ pub enum HappyEyeballsInputKind {
 
 #[repr(C)]
 pub enum HappyEyeballsEvent {
-    SendDnsQuery { record_type: HEDnsRecordType },
-    Timer { timer_type: HETimerType, duration_ms: u64 },
-    AttemptConnection { protocol: HEProtocol, port: u16 },
-    CancelConnection { port: u16 },
+    SendDnsQuery {
+        record_type: HEDnsRecordType,
+    },
+    Timer {
+        timer_type: HETimerType,
+        duration_ms: u64,
+    },
+    AttemptConnection {
+        protocol: HEProtocol,
+        port: u16,
+    },
+    CancelConnection {
+        port: u16,
+    },
     NoEvent,
 }
 
@@ -177,11 +172,20 @@ pub extern "C" fn happy_eyeballs_process(
             if addr_len == 0 {
                 // Empty, but still a valid (negative) response.
                 let inner = match input_kind {
-                    HappyEyeballsInputKind::DnsResponseA => happy_eyeballs::DnsResponseInner::A(Ok(Vec::new())),
-                    HappyEyeballsInputKind::DnsResponseAaaa => happy_eyeballs::DnsResponseInner::Aaaa(Ok(Vec::new())),
+                    HappyEyeballsInputKind::DnsResponseA => {
+                        happy_eyeballs::DnsResponseInner::A(Ok(Vec::new()))
+                    }
+                    HappyEyeballsInputKind::DnsResponseAaaa => {
+                        happy_eyeballs::DnsResponseInner::Aaaa(Ok(Vec::new()))
+                    }
                     _ => unreachable!(),
                 };
-                Some(happy_eyeballs::Input::DnsResponse(happy_eyeballs::DnsResponse { target_name: name, inner }))
+                Some(happy_eyeballs::Input::DnsResponse(
+                    happy_eyeballs::DnsResponse {
+                        target_name: name,
+                        inner,
+                    },
+                ))
             } else {
                 if addr_bytes.is_null() {
                     return NS_ERROR_UNEXPECTED;
@@ -189,7 +193,9 @@ pub extern "C" fn happy_eyeballs_process(
                 let slice = unsafe { std::slice::from_raw_parts(addr_bytes, addr_len as usize) };
                 let inner = match input_kind {
                     HappyEyeballsInputKind::DnsResponseA => {
-                        if slice.len() % 4 != 0 { return NS_ERROR_UNEXPECTED; }
+                        if slice.len() % 4 != 0 {
+                            return NS_ERROR_UNEXPECTED;
+                        }
                         let mut addrs = Vec::with_capacity(slice.len() / 4);
                         for chunk in slice.chunks_exact(4) {
                             let ipv4 = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
@@ -198,7 +204,9 @@ pub extern "C" fn happy_eyeballs_process(
                         happy_eyeballs::DnsResponseInner::A(Ok(addrs))
                     }
                     HappyEyeballsInputKind::DnsResponseAaaa => {
-                        if slice.len() % 16 != 0 { return NS_ERROR_UNEXPECTED; }
+                        if slice.len() % 16 != 0 {
+                            return NS_ERROR_UNEXPECTED;
+                        }
                         let mut addrs = Vec::with_capacity(slice.len() / 16);
                         for chunk in slice.chunks_exact(16) {
                             let mut octs = [0u8; 16];
@@ -210,23 +218,39 @@ pub extern "C" fn happy_eyeballs_process(
                     }
                     _ => unreachable!(),
                 };
-                Some(happy_eyeballs::Input::DnsResponse(happy_eyeballs::DnsResponse { target_name: name, inner }))
+                Some(happy_eyeballs::Input::DnsResponse(
+                    happy_eyeballs::DnsResponse {
+                        target_name: name,
+                        inner,
+                    },
+                ))
             }
         }
     };
 
     let out = he.inner.process(input, std::time::Instant::now());
     match out {
-        Some(happy_eyeballs::Output::SendDnsQuery { hostname: _hostname, record_type }) => {
+        Some(happy_eyeballs::Output::SendDnsQuery {
+            hostname: _hostname,
+            record_type,
+        }) => {
             // Hostname is known by the caller; do not emit here.
-            *ret_event = HappyEyeballsEvent::SendDnsQuery { record_type: record_type.into() };
+            *ret_event = HappyEyeballsEvent::SendDnsQuery {
+                record_type: record_type.into(),
+            };
         }
-        Some(happy_eyeballs::Output::Timer { timer_type, duration }) => {
+        Some(happy_eyeballs::Output::Timer {
+            timer_type,
+            duration,
+        }) => {
             let duration_ms = duration.as_millis();
             let Ok(duration_ms) = u64::try_from(duration_ms) else {
                 return NS_ERROR_UNEXPECTED;
             };
-            *ret_event = HappyEyeballsEvent::Timer { timer_type: timer_type.into(), duration_ms };
+            *ret_event = HappyEyeballsEvent::Timer {
+                timer_type: timer_type.into(),
+                duration_ms,
+            };
         }
         Some(happy_eyeballs::Output::AttemptConnection { endpoint }) => {
             let ip_str = endpoint.address.ip().to_string();
