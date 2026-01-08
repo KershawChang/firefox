@@ -191,10 +191,11 @@ pub enum DnsRecordType {
 }
 
 #[repr(C)]
-pub enum Protocol {
+pub enum ProtocolCombination {
     H3 = 0,
-    H2 = 1,
-    H1 = 2,
+    H2OrH1 = 1,
+    H2 = 2,
+    H1 = 3,
 }
 
 impl From<happy_eyeballs::DnsRecordType> for DnsRecordType {
@@ -207,7 +208,18 @@ impl From<happy_eyeballs::DnsRecordType> for DnsRecordType {
     }
 }
 
-impl From<happy_eyeballs::Protocol> for Protocol {
+impl From<happy_eyeballs::ProtocolCombination> for ProtocolCombination {
+    fn from(v: happy_eyeballs::ProtocolCombination) -> Self {
+        match v {
+            happy_eyeballs::ProtocolCombination::H3 => Self::H3,
+            happy_eyeballs::ProtocolCombination::H2OrH1 => Self::H2OrH1,
+            happy_eyeballs::ProtocolCombination::H2 => Self::H2,
+            happy_eyeballs::ProtocolCombination::H1 => Self::H1,
+        }
+    }
+}
+
+impl From<happy_eyeballs::Protocol> for ProtocolCombination {
     fn from(v: happy_eyeballs::Protocol) -> Self {
         match v {
             happy_eyeballs::Protocol::H3 => Self::H3,
@@ -229,7 +241,7 @@ pub enum InputKind {
 pub enum Output {
     SendDnsQuery { record_type: DnsRecordType },
     Timer { duration_ms: u64 },
-    AttemptConnection { protocol: Protocol, port: u16 },
+    AttemptConnection { protocol: ProtocolCombination, port: u16 },
     None,
 }
 

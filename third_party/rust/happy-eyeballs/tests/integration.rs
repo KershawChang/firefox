@@ -7,7 +7,7 @@ use std::{
 use happy_eyeballs::{
     CONNECTION_ATTEMPT_DELAY, DnsRecordType, DnsResponse, DnsResponseInner, Endpoint,
     HappyEyeballs, HttpVersions, Input, IpPreference, NetworkConfig, Output, Protocol,
-    RESOLUTION_DELAY,
+    ProtocolCombination, RESOLUTION_DELAY,
 };
 use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
 
@@ -155,7 +155,7 @@ fn out_attempt_v6() -> Output {
     Output::AttemptConnection {
         endpoint: Endpoint {
             address: SocketAddr::new(V6_ADDR.into(), PORT),
-            protocol: Protocol::H2,
+            protocol: ProtocolCombination::H2OrH1,
         },
     }
 }
@@ -164,7 +164,7 @@ fn out_attempt_v6_h3() -> Output {
     Output::AttemptConnection {
         endpoint: Endpoint {
             address: SocketAddr::new(V6_ADDR.into(), PORT),
-            protocol: Protocol::H3,
+            protocol: ProtocolCombination::H3,
         },
     }
 }
@@ -173,7 +173,7 @@ fn out_attempt_v4() -> Output {
     Output::AttemptConnection {
         endpoint: Endpoint {
             address: SocketAddr::new(V4_ADDR.into(), PORT),
-            protocol: Protocol::H2,
+            protocol: ProtocolCombination::H2OrH1,
         },
     }
 }
@@ -494,7 +494,7 @@ mod section_4_hostname_resolution {
                 Some(Output::AttemptConnection {
                     endpoint: Endpoint {
                         address: SocketAddr::new(V6_ADDR_2.into(), PORT),
-                        protocol: Protocol::H2,
+                        protocol: ProtocolCombination::H2OrH1,
                     },
                 }),
             )],
@@ -591,4 +591,10 @@ fn ip_host() {
     let mut he = HappyEyeballs::new("[2001:0DB8::1]", PORT).unwrap();
 
     he.expect(vec![(None, Some(out_attempt_v6()))], now);
+}
+
+#[test]
+#[ignore]
+fn root_label() {
+    todo!("compare example.com. with example.com")
 }
