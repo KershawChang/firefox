@@ -5,6 +5,17 @@ use std::ptr;
 use thin_vec::ThinVec;
 use xpcom::{AtomicRefcnt, RefCounted};
 
+// Opaque interface to mozilla::net::NetAddr defined in DNS.h
+#[repr(C)]
+pub union NetAddr {
+    _private: [u8; 0],
+}
+
+extern "C" {
+    fn moz_netaddr_get_network_order_ip(arg: *const NetAddr) -> u32;
+    fn moz_netaddr_get_ipv6(arg: *const NetAddr) -> *const u8;
+}
+
 #[repr(C)]
 pub struct HappyEyeballs {
     refcnt: AtomicRefcnt,
@@ -28,8 +39,8 @@ impl HappyEyeballs {
         &mut self,
         input_kind: InputKind,
         hostname: *const nsACString,
-        addr_bytes: *const u8,
-        addr_len: u32,
+        addrs: *const NetAddr,
+        addrs_len: u32,
         ret_event: &mut Output,
         data: &mut ThinVec<u8>,
     ) -> nsresult {
@@ -42,7 +53,7 @@ impl HappyEyeballs {
                 }
                 let host = unsafe { (&*hostname).to_utf8().to_string() };
                 let name = happy_eyeballs::TargetName::from(host.as_str());
-                if addr_len == 0 {
+                if addrs_len == 0 {
                     let inner = match input_kind {
                         InputKind::DnsResponseA => {
                             happy_eyeballs::DnsResponseInner::A(Ok(Vec::new()))
@@ -59,35 +70,42 @@ impl HappyEyeballs {
                         },
                     ))
                 } else {
-                    if addr_bytes.is_null() {
+                    if addrs.is_null() {
                         return NS_ERROR_UNEXPECTED;
                     }
-                    let slice =
-                        unsafe { std::slice::from_raw_parts(addr_bytes, addr_len as usize) };
+                    let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
                     let inner = match input_kind {
                         InputKind::DnsResponseA => {
-                            if slice.len() % 4 != 0 {
-                                return NS_ERROR_UNEXPECTED;
+                            // TODO: Sane?
+                            let mut out = Vec::with_capacity(slice.len());
+                            for na in slice.iter() {
+                                let ip_be = unsafe {
+                                    moz_netaddr_get_network_order_ip(
+                                        (na as *const NetAddr).cast(),
+                                    )
+                                };
+                                let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+                                out.push(ipv4);
                             }
-                            let mut addrs = Vec::with_capacity(slice.len() / 4);
-                            for chunk in slice.chunks_exact(4) {
-                                let ipv4 = Ipv4Addr::new(chunk[0], chunk[1], chunk[2], chunk[3]);
-                                addrs.push(ipv4);
-                            }
-                            happy_eyeballs::DnsResponseInner::A(Ok(addrs))
+                            happy_eyeballs::DnsResponseInner::A(Ok(out))
                         }
                         InputKind::DnsResponseAaaa => {
-                            if slice.len() % 16 != 0 {
-                                return NS_ERROR_UNEXPECTED;
-                            }
-                            let mut addrs = Vec::with_capacity(slice.len() / 16);
-                            for chunk in slice.chunks_exact(16) {
-                                let mut octs = [0u8; 16];
-                                octs.copy_from_slice(chunk);
+                            // TODO: Sane?
+                            let mut out = Vec::with_capacity(slice.len());
+                            for na in slice.iter() {
+                                let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
+                                if p.is_null() {
+                                    return NS_ERROR_UNEXPECTED;
+                                }
+                                let octs: [u8; 16] = unsafe {
+                                    std::slice::from_raw_parts(p, 16)
+                                        .try_into()
+                                        .unwrap()
+                                };
                                 let ipv6 = Ipv6Addr::from(octs);
-                                addrs.push(ipv6);
+                                out.push(ipv6);
                             }
-                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(addrs))
+                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(out))
                         }
                         _ => unreachable!(),
                     };
@@ -220,12 +238,12 @@ pub extern "C" fn happy_eyeballs_process(
     he: &mut HappyEyeballs,
     input_kind: InputKind,
     hostname: *const nsACString,
-    addr_bytes: *const u8,
-    addr_len: u32,
+    addrs: *const NetAddr,
+    addrs_len: u32,
     ret_event: &mut Output,
     data: &mut ThinVec<u8>,
 ) -> nsresult {
-    he.process(input_kind, hostname, addr_bytes, addr_len, ret_event, data)
+    he.process(input_kind, hostname, addrs, addrs_len, ret_event, data)
 }
 
 #[no_mangle]
