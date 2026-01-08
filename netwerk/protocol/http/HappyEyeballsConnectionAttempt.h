@@ -9,6 +9,8 @@
 #include "ConnectionAttempt.h"
 #include "nsAHttpConnection.h"
 #include "nsIDNSListener.h"
+#include "mozilla/Result.h"
+#include "mozilla/net/happy_eyeballs_glue.h"
 
 namespace mozilla {
 namespace net {
@@ -46,7 +48,18 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
  private:
   ~HappyEyeballsConnectionAttempt();
 
-  nsresult ProcessHappyEyeballsEvents();
+  nsresult ProcessHappyEyeballsEvents(HappyEyeballsInputKind aInputKind,
+                                      const nsACString& aHost,
+                                      const uint8_t* aAddrBytes,
+                                      uint32_t aAddrLen);
+  // DNS lookups
+  Result<nsIDNSService::DNSFlags, nsresult> SetupDnsFlags(DnsRecordType aType);
+  nsresult DNSLookup(DnsRecordType aType, nsIDNSService::DNSFlags aFlags);
+
+  // DNS answers
+  nsresult OnARecord(nsIDNSRecord* aRecord, nsresult status);
+  nsresult OnAAAARecord(nsIDNSRecord* aRecord, nsresult status);
+  nsresult OnHTTPSRecord(nsIDNSRecord* aRecord, nsresult status);
 
   const HappyEyeballs* mHappyEyeballs = nullptr;
 
@@ -57,7 +70,8 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsCOMPtr<nsIDNSAddrRecord> mARecord;
   nsCOMPtr<nsIDNSAddrRecord> mAAAARecord;
   nsCOMPtr<nsIDNSHTTPSSVCRecord> mHTTPSRecord;
-  nsIDNSService::DNSFlags mDnsFlags = nsIDNSService::RESOLVE_DEFAULT_FLAGS;
+  // TODO: should use WeakPtr or RefPtr
+  ConnectionEntry* mEntry;
 };
 
 }  // namespace net
