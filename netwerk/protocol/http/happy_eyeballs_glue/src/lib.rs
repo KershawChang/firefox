@@ -1,6 +1,6 @@
 use nserror::{nsresult, NS_ERROR_UNEXPECTED, NS_OK};
 use nsstring::nsACString;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ptr;
 use thin_vec::ThinVec;
 use xpcom::{AtomicRefcnt, RefCounted};
@@ -14,6 +14,7 @@ pub union NetAddr {
 extern "C" {
     fn moz_netaddr_get_network_order_ip(arg: *const NetAddr) -> u32;
     fn moz_netaddr_get_ipv6(arg: *const NetAddr) -> *const u8;
+    fn moz_netaddr_get_network_order_port(arg: *const NetAddr) -> u16;
 }
 
 #[repr(C)]
@@ -46,6 +47,39 @@ impl HappyEyeballs {
     ) -> nsresult {
         let input = match input_kind {
             InputKind::None => None,
+            InputKind::ConnectionResult => {
+                if addrs.is_null() || addrs_len != 1 {
+                    return NS_ERROR_UNEXPECTED;
+                }
+                let netaddr = unsafe { &*addrs };
+                let port = u16::from_be(unsafe { moz_netaddr_get_network_order_port(netaddr) });
+
+                let ipv6_ptr = unsafe { moz_netaddr_get_ipv6(netaddr) };
+                let address = if !ipv6_ptr.is_null() {
+                    let octs: [u8; 16] = unsafe {
+                        std::slice::from_raw_parts(ipv6_ptr, 16)
+                            .try_into()
+                            .unwrap()
+                    };
+                    let ipv6 = Ipv6Addr::from(octs);
+                    SocketAddr::from((ipv6, port))
+                } else {
+                    let ip_be = unsafe { moz_netaddr_get_network_order_ip(netaddr) };
+                    let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+                    SocketAddr::from((ipv4, port))
+                };
+
+                let result = if data.is_empty() {
+                    Ok(())
+                } else {
+                    let error_msg = match std::str::from_utf8(data.as_slice()) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => String::from("connection failed"),
+                    };
+                    Err(error_msg)
+                };
+                Some(happy_eyeballs::Input::ConnectionResult { address, result })
+            }
             InputKind::DnsResponseA | InputKind::DnsResponseAaaa => {
                 if hostname.is_null() {
                     return NS_ERROR_UNEXPECTED;
@@ -137,15 +171,19 @@ impl HappyEyeballs {
                 };
             }
             Some(happy_eyeballs::Output::AttemptConnection { endpoint }) => {
-                let ip_str = endpoint.address.ip().to_string();
-                data.extend_from_slice(ip_str.as_bytes());
+                let addr_str = endpoint.address.to_string();
+                data.extend_from_slice(addr_str.as_bytes());
                 *ret_event = Output::AttemptConnection {
                     protocol: endpoint.protocol.into(),
                     port: endpoint.address.port(),
                 };
             }
-            Some(happy_eyeballs::Output::CancelConnection(_addr)) => {
-                unimplemented!();
+            Some(happy_eyeballs::Output::CancelConnection(addr)) => {
+                let addr_str = addr.to_string();
+                data.extend_from_slice(addr_str.as_bytes());
+                *ret_event = Output::CancelConnection {
+                    port: addr.port(),
+                };
             }
             None => {
                 *ret_event = Output::None;
@@ -233,6 +271,7 @@ pub enum InputKind {
     None = 0,
     DnsResponseA = 2,
     DnsResponseAaaa = 3,
+    ConnectionResult = 4,
 }
 
 #[repr(C)]
@@ -240,6 +279,7 @@ pub enum Output {
     SendDnsQuery { record_type: DnsRecordType },
     Timer { duration_ms: u64 },
     AttemptConnection { protocol: ProtocolCombination, port: u16 },
+    CancelConnection { port: u16 },
     None,
 }
 
