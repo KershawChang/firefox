@@ -5,14 +5,14 @@ use std::{
 };
 
 use happy_eyeballs::{
-    CONNECTION_ATTEMPT_DELAY, DnsRecordType, DnsResponse, DnsResponseInner, Endpoint,
-    HappyEyeballs, HttpVersions, Input, IpPreference, NetworkConfig, Output, Protocol,
-    ProtocolCombination, RESOLUTION_DELAY,
+    CONNECTION_ATTEMPT_DELAY, DnsRecordType, DnsResult, DnsResultInner, Endpoint, HappyEyeballs,
+    HttpVersions, Input, IpPreference, NetworkConfig, Output, Protocol, ProtocolCombination,
+    RESOLUTION_DELAY,
 };
 use tracing_subscriber::{EnvFilter, util::SubscriberInitExt};
 
-// TODO: Handle difference between com. and com? Use library for hostnames?!
-const HOSTNAME: &str = "example.com.";
+// TODO: Should crate treat "example.com" and "example.com." the same?
+const HOSTNAME: &str = "example.com";
 const PORT: u16 = 443;
 const V6_ADDR: Ipv6Addr = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1);
 const V6_ADDR_2: Ipv6Addr = Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 2);
@@ -33,11 +33,11 @@ impl HappyEyeballsExt for HappyEyeballs {
 }
 
 fn in_dns_https_positive() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
             priority: 1,
-            target_name: "example.com.".into(),
+            target_name: HOSTNAME.into(),
             alpn_protocols: HashSet::from([Protocol::H3, Protocol::H2]),
             ipv6_hints: vec![],
             ipv4_hints: vec![],
@@ -47,11 +47,11 @@ fn in_dns_https_positive() -> Input {
 }
 
 fn in_dns_https_positive_no_alpn() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
             priority: 1,
-            target_name: "example.com.".into(),
+            target_name: HOSTNAME.into(),
             alpn_protocols: HashSet::new(),
             ipv6_hints: vec![],
             ipv4_hints: vec![],
@@ -61,11 +61,11 @@ fn in_dns_https_positive_no_alpn() -> Input {
 }
 
 fn in_dns_https_positive_v6_hints() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
             priority: 1,
-            target_name: "example.com.".into(),
+            target_name: HOSTNAME.into(),
             alpn_protocols: HashSet::from([Protocol::H3, Protocol::H2]),
             ipv6_hints: vec![Ipv6Addr::new(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)],
             ipv4_hints: vec![],
@@ -75,9 +75,9 @@ fn in_dns_https_positive_v6_hints() -> Input {
 }
 
 fn in_dns_https_positive_svc1() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Https(Ok(vec![happy_eyeballs::ServiceInfo {
             priority: 1,
             target_name: "svc1.example.com.".into(),
             alpn_protocols: HashSet::from([Protocol::H3, Protocol::H2]),
@@ -89,37 +89,37 @@ fn in_dns_https_positive_svc1() -> Input {
 }
 
 fn in_dns_https_negative() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Https(Err(())),
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Https(Err(())),
     })
 }
 
 fn in_dns_aaaa_positive() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Aaaa(Ok(vec![V6_ADDR])),
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Aaaa(Ok(vec![V6_ADDR])),
     })
 }
 
 fn in_dns_a_positive() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::A(Ok(vec![V4_ADDR])),
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::A(Ok(vec![V4_ADDR])),
     })
 }
 
 fn in_dns_aaaa_negative() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::Aaaa(Err(())),
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::Aaaa(Err(())),
     })
 }
 
 fn in_dns_a_negative() -> Input {
-    Input::DnsResponse(DnsResponse {
-        target_name: "example.com.".into(),
-        inner: DnsResponseInner::A(Err(())),
+    Input::DnsResult(DnsResult {
+        target_name: HOSTNAME.into(),
+        inner: DnsResultInner::A(Err(())),
     })
 }
 
@@ -476,9 +476,9 @@ mod section_4_hostname_resolution {
                 (Some(in_dns_https_negative()), Some(out_resolution_delay())),
                 (Some(in_dns_a_negative()), Some(out_resolution_delay())),
                 (
-                    Some(Input::DnsResponse(DnsResponse {
-                        target_name: "example.com.".into(),
-                        inner: DnsResponseInner::Aaaa(Ok(vec![V6_ADDR, V6_ADDR_2, V6_ADDR_3])),
+                    Some(Input::DnsResult(DnsResult {
+                        target_name: HOSTNAME.into(),
+                        inner: DnsResultInner::Aaaa(Ok(vec![V6_ADDR, V6_ADDR_2, V6_ADDR_3])),
                     })),
                     Some(out_attempt_v6()),
                 ),
@@ -556,6 +556,109 @@ mod section_6_connection_attempts {
 
         he.expect(vec![(None, None)], now);
     }
+
+    #[test]
+    fn successful_connection_cancels_others() {
+        let (mut now, mut he) = setup();
+
+        he.expect(
+            vec![
+                (None, Some(out_send_dns_https())),
+                (None, Some(out_send_dns_aaaa())),
+                (None, Some(out_send_dns_a())),
+                (
+                    Some(in_dns_https_positive_no_alpn()),
+                    Some(out_resolution_delay()),
+                ),
+                (
+                    Some(Input::DnsResult(DnsResult {
+                        target_name: HOSTNAME.into(),
+                        inner: DnsResultInner::Aaaa(Ok(vec![V6_ADDR, V6_ADDR_2])),
+                    })),
+                    Some(out_attempt_v6()),
+                ),
+                (
+                    Some(in_dns_a_positive()),
+                    Some(out_connection_attempt_delay()),
+                ),
+            ],
+            now,
+        );
+
+        now += CONNECTION_ATTEMPT_DELAY;
+        he.expect(
+            vec![(
+                None,
+                Some(Output::AttemptConnection {
+                    endpoint: Endpoint {
+                        address: SocketAddr::new(V6_ADDR_2.into(), PORT),
+                        protocol: ProtocolCombination::H2OrH1,
+                    },
+                }),
+            )],
+            now,
+        );
+
+        now += CONNECTION_ATTEMPT_DELAY;
+        he.expect(vec![(None, Some(out_attempt_v4()))], now);
+        he.expect(
+            vec![
+                (
+                    Some(Input::ConnectionResult {
+                        address: SocketAddr::new(V6_ADDR.into(), PORT),
+                        result: Ok(()),
+                    }),
+                    Some(Output::CancelConnection(SocketAddr::new(
+                        V6_ADDR_2.into(),
+                        PORT,
+                    ))),
+                ),
+                (
+                    None,
+                    Some(Output::CancelConnection(SocketAddr::new(
+                        V4_ADDR.into(),
+                        PORT,
+                    ))),
+                ),
+                (None, None),
+            ],
+            now,
+        );
+    }
+
+    #[test]
+    fn failed_connection_tries_next_immediately() {
+        let (now, mut he) = setup();
+
+        he.expect(
+            vec![
+                (None, Some(out_send_dns_https())),
+                (None, Some(out_send_dns_aaaa())),
+                (None, Some(out_send_dns_a())),
+                (
+                    Some(in_dns_https_positive_no_alpn()),
+                    Some(out_resolution_delay()),
+                ),
+                (Some(in_dns_aaaa_positive()), Some(out_attempt_v6())),
+                (
+                    Some(in_dns_a_positive()),
+                    Some(out_connection_attempt_delay()),
+                ),
+            ],
+            now,
+        );
+
+        he.expect(
+            vec![(
+                Some(Input::ConnectionResult {
+                    address: SocketAddr::new(V6_ADDR.into(), PORT),
+                    result: Err("connection refused".to_string()),
+                }),
+                Some(out_attempt_v4()),
+            )],
+            now,
+        );
+    }
 }
 
 #[test]
@@ -598,10 +701,4 @@ fn not_url_but_ip() {
     // Neither of these are a valid URL, but they are valid IP addresses.
     HappyEyeballs::new("::1", PORT).unwrap();
     HappyEyeballs::new("127.0.0.1", PORT).unwrap();
-}
-
-#[test]
-#[ignore]
-fn root_label() {
-    todo!("compare example.com. with example.com")
 }

@@ -46,7 +46,6 @@ impl HappyEyeballs {
     ) -> nsresult {
         let input = match input_kind {
             InputKind::None => None,
-            InputKind::Cancel => Some(happy_eyeballs::Input::Cancel),
             InputKind::DnsResponseA | InputKind::DnsResponseAaaa => {
                 if hostname.is_null() {
                     return NS_ERROR_UNEXPECTED;
@@ -56,15 +55,15 @@ impl HappyEyeballs {
                 if addrs_len == 0 {
                     let inner = match input_kind {
                         InputKind::DnsResponseA => {
-                            happy_eyeballs::DnsResponseInner::A(Ok(Vec::new()))
+                            happy_eyeballs::DnsResultInner::A(Ok(Vec::new()))
                         }
                         InputKind::DnsResponseAaaa => {
-                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(Vec::new()))
+                            happy_eyeballs::DnsResultInner::Aaaa(Ok(Vec::new()))
                         }
                         _ => unreachable!(),
                     };
-                    Some(happy_eyeballs::Input::DnsResponse(
-                        happy_eyeballs::DnsResponse {
+                    Some(happy_eyeballs::Input::DnsResult(
+                        happy_eyeballs::DnsResult {
                             target_name: name,
                             inner,
                         },
@@ -87,7 +86,7 @@ impl HappyEyeballs {
                                 let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
                                 out.push(ipv4);
                             }
-                            happy_eyeballs::DnsResponseInner::A(Ok(out))
+                            happy_eyeballs::DnsResultInner::A(Ok(out))
                         }
                         InputKind::DnsResponseAaaa => {
                             // TODO: Sane?
@@ -105,12 +104,12 @@ impl HappyEyeballs {
                                 let ipv6 = Ipv6Addr::from(octs);
                                 out.push(ipv6);
                             }
-                            happy_eyeballs::DnsResponseInner::Aaaa(Ok(out))
+                            happy_eyeballs::DnsResultInner::Aaaa(Ok(out))
                         }
                         _ => unreachable!(),
                     };
-                    Some(happy_eyeballs::Input::DnsResponse(
-                        happy_eyeballs::DnsResponse {
+                    Some(happy_eyeballs::Input::DnsResult(
+                        happy_eyeballs::DnsResult {
                             target_name: name,
                             inner,
                         },
@@ -232,7 +231,6 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 #[repr(C)]
 pub enum InputKind {
     None = 0,
-    Cancel = 1,
     DnsResponseA = 2,
     DnsResponseAaaa = 3,
 }
