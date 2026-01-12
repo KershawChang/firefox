@@ -1,9 +1,9 @@
-use nserror::{nsresult, NS_ERROR_UNEXPECTED, NS_OK};
+use nserror::{nsresult, NS_ERROR_INVALID_ARG, NS_ERROR_UNEXPECTED, NS_OK};
 use nsstring::nsACString;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ptr;
 use thin_vec::ThinVec;
-use xpcom::{AtomicRefcnt, RefCounted};
+use xpcom::{AtomicRefcnt, RefCounted, RefPtr};
 
 // Opaque interface to mozilla::net::NetAddr defined in DNS.h
 #[repr(C)]
@@ -201,23 +201,25 @@ pub extern "C" fn happy_eyeballs_new(
     port: u16,
 ) -> nsresult {
     *result = ptr::null_mut();
-    let origin_str = unsafe {
-        if origin.is_null() {
-            String::new()
-        } else {
-            (&*origin).to_utf8().to_string()
-        }
-    };
+
+    if origin.is_null() {
+        return NS_ERROR_INVALID_ARG;
+    }
+
+    let origin_str = unsafe { (&*origin).to_utf8().to_string() };
+
     let happy_eyeballs = match HappyEyeballs::new(origin_str.as_str(), port) {
-        Ok(he) => he,
+        Ok(he) => Box::into_raw(Box::new(he)),
         Err(_) => return NS_ERROR_UNEXPECTED,
     };
-    unsafe {
-        xpcom::RefPtr::from_raw(Box::into_raw(Box::new(happy_eyeballs)))
-            .unwrap()
-            .forget(result)
-    };
-    NS_OK
+
+    match unsafe { RefPtr::from_raw(happy_eyeballs) } {
+        Some(ptr) => {
+            unsafe { ptr.forget(result) };
+            NS_OK
+        }
+        None => NS_ERROR_UNEXPECTED,
+    }
 }
 
 #[repr(C)]
