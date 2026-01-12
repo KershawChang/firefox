@@ -51,7 +51,27 @@ nsresult HappyEyeballsConnectionAttemptPool::StartConnectionEstablishment(
 size_t HappyEyeballsConnectionAttemptPool::Length() const { return 0; }
 
 void HappyEyeballsConnectionAttemptPool::RemoveConnectionAttempt(
-    ConnectionAttempt* attempt, bool abandon) {}
+    ConnectionAttempt* attempt, bool abandon) {
+  if (abandon) {
+    attempt->Abandon();
+  }
+
+  if (mUnconnectedConns.RemoveElement(attempt)) {
+    gHttpHandler->ConnMgr()->DecreaseNumDnsAndConnectSockets();
+  }
+
+  if (!UnconnectedConnectionAttempts()) {
+    // perhaps this reverted RestrictConnections()
+    // use the PostEvent version of processpendingq to avoid
+    // altering the pending q vector from an arbitrary stack
+    nsresult rv = gHttpHandler->ConnMgr()->ProcessPendingQ(mConnInfo);
+    if (NS_FAILED(rv)) {
+      LOG(
+          ("ConnectionAttemptPool::RemoveConnectionAttempt\n"
+           "    failed to process pending queue\n"));
+    }
+  }
+}
 
 void HappyEyeballsConnectionAttemptPool::CloseAllConnectionAttempts() {}
 

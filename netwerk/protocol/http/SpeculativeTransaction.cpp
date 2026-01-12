@@ -16,7 +16,7 @@ namespace net {
 
 SpeculativeTransaction::SpeculativeTransaction(
     nsHttpConnectionInfo* aConnInfo, nsIInterfaceRequestor* aCallbacks,
-    uint32_t aCaps, std::function<void(bool)>&& aCallback)
+    uint32_t aCaps, std::function<void(nsresult)>&& aCallback)
     : NullHttpTransaction(aConnInfo, aCallbacks, aCaps),
       mCloseCallback(std::move(aCallback)) {}
 
@@ -91,14 +91,14 @@ void SpeculativeTransaction::Close(nsresult aReason) {
     aReason = NS_OK;
   }
   if (mCloseCallback) {
-    mCloseCallback(mTriedToWrite && NS_SUCCEEDED(aReason));
+    mCloseCallback(mTriedToWrite ? aReason : NS_ERROR_FAILURE);
     mCloseCallback = nullptr;
   }
 }
 
 void SpeculativeTransaction::InvokeCallback() {
   if (mCloseCallback) {
-    mCloseCallback(true);
+    mCloseCallback(NS_OK);
     mCloseCallback = nullptr;
   }
 }

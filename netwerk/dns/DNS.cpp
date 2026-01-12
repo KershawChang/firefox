@@ -471,5 +471,9 @@ size_t AddrInfo::SizeOfIncludingThis(MallocSizeOf mallocSizeOf) const {
   return n;
 }
 
+size_t NetAddrKey::SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const {
+  return aMallocSizeOf(this);
+}
+
 }  // namespace net
 }  // namespace mozilla

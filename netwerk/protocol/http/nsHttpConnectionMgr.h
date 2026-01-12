@@ -213,7 +213,10 @@ class nsHttpConnectionMgr final : public HttpConnectionMgrShell,
 
  private:
   friend class DnsAndConnectSocket;
+  friend class HappyEyeballsConnectionAttempt;
   friend class PendingTransactionInfo;
+  friend class ConnectionEstablisher;
+  friend class TCPConnectionEstablisher;
 
   //-------------------------------------------------------------------------
   // NOTE: these members may be accessed from any thread (use mReentrantMonitor)

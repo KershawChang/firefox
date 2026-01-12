@@ -15,6 +15,7 @@
 #include "nsISupportsImpl.h"
 #include "mozilla/MemoryReporting.h"
 #include "nsTArray.h"
+#include "nsHashKeys.h"
 
 #if !defined(XP_WIN)
 #  include <arpa/inet.h>
@@ -158,6 +159,38 @@ union NetAddr {
   nsCString ToString() const;
   void ToAddrPortString(nsACString& aOutput) const;
   nsILoadInfo::IPAddressSpace GetIpAddressSpace() const;
+};
+
+class NetAddrKey : public PLDHashEntryHdr {
+ public:
+  typedef const NetAddrKey& KeyType;
+  typedef const NetAddrKey* KeyTypePointer;
+
+  explicit NetAddrKey(NetAddr aAddr) : mAddr(aAddr) {}
+
+  explicit NetAddrKey(KeyTypePointer other) : mAddr(other->mAddr) {}
+
+  NetAddrKey(const NetAddrKey& other) : mAddr(other.mAddr) {}
+  NetAddrKey(NetAddrKey&& other) : mAddr(std::move(other.mAddr)) {}
+
+  NetAddrKey& operator=(const NetAddrKey& aOther) {
+    mAddr = aOther.mAddr;
+    return *this;
+  }
+
+  bool KeyEquals(KeyTypePointer other) const { return mAddr == other->mAddr; }
+
+  static KeyTypePointer KeyToPointer(KeyType aKey) { return &aKey; }
+
+  static PLDHashNumber HashKey(KeyTypePointer aKey) {
+    return HashString(aKey->mAddr.ToString());
+  }
+
+  size_t SizeOfExcludingThis(MallocSizeOf aMallocSizeOf) const;
+
+  enum { ALLOW_MEMMOVE = true };
+
+  NetAddr mAddr;
 };
 
 enum class DNSResolverType : uint32_t { Native = 0, TRR };

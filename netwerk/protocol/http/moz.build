@@ -113,6 +113,7 @@ UNIFIED_SOURCES += [
     "ConnectionAttemptPool.cpp",
     "ConnectionDiagnostics.cpp",
     "ConnectionEntry.cpp",
+    "ConnectionEstablisher.cpp",
     "ConnectionHandle.cpp",
     "DnsAndConnectSocket.cpp",
     "EarlyHintPreconnect.cpp",

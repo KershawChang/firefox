@@ -11,6 +11,7 @@
 #include "nsIDNSListener.h"
 #include "mozilla/Result.h"
 #include "mozilla/net/happy_eyeballs_glue.h"
+#include "ConnectionEstablisher.h"
 
 namespace mozilla {
 namespace net {
@@ -50,7 +51,7 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
 
   nsresult ProcessHappyEyeballsEvents(HappyEyeballsInputKind aInputKind,
                                       const nsACString& aHost,
-                                      const uint8_t* aAddrBytes,
+                                      const NetAddr* aAddresses,
                                       uint32_t aAddrLen);
   // DNS lookups
   Result<nsIDNSService::DNSFlags, nsresult> SetupDnsFlags(DnsRecordType aType);
@@ -61,6 +62,18 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsresult OnAAAARecord(nsIDNSRecord* aRecord, nsresult status);
   nsresult OnHTTPSRecord(nsIDNSRecord* aRecord, nsresult status);
 
+  // Connection Attempt
+  nsresult EstablishTCPConnection(NetAddr aAddr);
+  void HandleTCPConnectionResult(
+      Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
+      TCPConnectionEstablisher* aEstablisher);
+  void CancelConnection(NetAddr aAddr);
+
+  // Timer
+  void SetupTimer(uint64_t aTimeout);
+
+  void Done();
+
   const HappyEyeballs* mHappyEyeballs = nullptr;
 
   nsCString mHost;
@@ -70,8 +83,14 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsCOMPtr<nsIDNSAddrRecord> mARecord;
   nsCOMPtr<nsIDNSAddrRecord> mAAAARecord;
   nsCOMPtr<nsIDNSHTTPSSVCRecord> mHTTPSRecord;
+
+  nsRefPtrHashtable<NetAddrKey, ConnectionEstablisher>
+      mConnectionEstablisherTable;
+
+  nsCOMPtr<nsITimer> mTimer;
   // TODO: should use WeakPtr or RefPtr
   ConnectionEntry* mEntry;
+  bool mDone = false;
 };
 
 }  // namespace net

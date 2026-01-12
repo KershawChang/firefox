@@ -173,7 +173,7 @@ impl HappyEyeballs {
                 };
             }
             Some(happy_eyeballs::Output::AttemptConnection { endpoint }) => {
-                let addr_str = endpoint.address.to_string();
+                let addr_str = endpoint.address.ip().to_string();
                 data.extend_from_slice(addr_str.as_bytes());
                 *ret_event = Output::AttemptConnection {
                     protocol: endpoint.protocol.into(),
@@ -181,7 +181,7 @@ impl HappyEyeballs {
                 };
             }
             Some(happy_eyeballs::Output::CancelConnection(addr)) => {
-                let addr_str = addr.to_string();
+                let addr_str = addr.ip().to_string();
                 data.extend_from_slice(addr_str.as_bytes());
                 *ret_event = Output::CancelConnection {
                     port: addr.port(),

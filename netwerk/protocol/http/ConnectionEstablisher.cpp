@@ -1,0 +1,526 @@
+/* vim:set ts=4 sw=2 sts=2 et cin: */
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+// HttpLog.h should generally be included first
+#include "HttpLog.h"
+
+#include "ConnectionEstablisher.h"
+#include "mozilla/Components.h"
+#include "nsSocketTransportService2.h"
+#include "nsHttpHandler.h"
+#include "nsIDNSRecord.h"
+
+// Log on level :5, instead of default :4.
+#undef LOG
+#define LOG(args) LOG5(args)
+#undef LOG_ENABLED
+#define LOG_ENABLED() LOG5_ENABLED()
+
+namespace mozilla::net {
+
+// -------------------- SingleDNSAddrRecord --------------------
+
+class SingleDNSAddrRecord final : public nsIDNSAddrRecord {
+ public:
+  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_NSIDNSRECORD
+  NS_DECL_NSIDNSADDRRECORD
+
+  SingleDNSAddrRecord(NetAddr aAddr, nsIDNSAddrRecord* aRecord)
+      : mAddress(aAddr), mInner(aRecord) {}
+
+ private:
+  ~SingleDNSAddrRecord() = default;
+
+  nsCString mCanonicalName;
+  NetAddr mAddress;
+  nsCOMPtr<nsIDNSAddrRecord> mInner;
+
+  bool mDone = false;
+  bool mIsTRR = false;
+  bool mResolvedInSocketProcess = false;
+  double mTrrFetchDuration = 0.0;
+  double mTrrFetchDurationNetworkOnly = 0.0;
+  nsIRequest::TRRMode mEffectiveTRRMode = nsIRequest::TRR_DEFAULT_MODE;
+  nsITRRSkipReason::value mTrrSkipReason = nsITRRSkipReason::TRR_UNSET;
+  uint32_t mTTL = 60;
+  mozilla::TimeStamp mLastUpdate = TimeStamp::Now();
+};
+
+NS_IMPL_ISUPPORTS(SingleDNSAddrRecord, nsIDNSRecord, nsIDNSAddrRecord)
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetCanonicalName(nsACString& aResult) {
+  if (mInner) {
+    return mInner->GetCanonicalName(aResult);
+  }
+
+  aResult.Assign(mCanonicalName);
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::IsTRR(bool* aRetval) {
+  if (mInner) {
+    return mInner->IsTRR(aRetval);
+  }
+
+  *aRetval = mIsTRR;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::ResolvedInSocketProcess(bool* aRetval) {
+  if (mInner) {
+    return mInner->ResolvedInSocketProcess(aRetval);
+  }
+
+  *aRetval = mResolvedInSocketProcess;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetTrrFetchDuration(double* aTime) {
+  if (mInner) {
+    return mInner->GetTrrFetchDuration(aTime);
+  }
+
+  *aTime = mTrrFetchDuration;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetTrrFetchDurationNetworkOnly(double* aTime) {
+  if (mInner) {
+    return mInner->GetTrrFetchDurationNetworkOnly(aTime);
+  }
+
+  *aTime = mTrrFetchDurationNetworkOnly;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetScriptableNextAddr(uint16_t aPort,
+                                           nsINetAddr** aResult) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetNextAddrAsString(nsACString& aResult) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::HasMore(bool* aResult) {
+  // We always return the same and only one address.
+  *aResult = true;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::Rewind() { return NS_ERROR_NOT_IMPLEMENTED; }
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::ReportUnusable(uint16_t aPort) {
+  // TODO: should we block this address?
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetEffectiveTRRMode(nsIRequest::TRRMode* aMode) {
+  if (mInner) {
+    return mInner->GetEffectiveTRRMode(aMode);
+  }
+
+  *aMode = mEffectiveTRRMode;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetTrrSkipReason(nsITRRSkipReason::value* aReason) {
+  if (mInner) {
+    return mInner->GetTrrSkipReason(aReason);
+  }
+
+  *aReason = mTrrSkipReason;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetTtl(uint32_t* aTtl) {
+  if (mInner) {
+    return mInner->GetTtl(aTtl);
+  }
+
+  *aTtl = mTTL;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetLastUpdate(mozilla::TimeStamp* aLastUpdate) {
+  if (mInner) {
+    return mInner->GetLastUpdate(aLastUpdate);
+  }
+
+  *aLastUpdate = mLastUpdate;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetNextAddr(uint16_t aPort, NetAddr* aAddr) {
+  if (mDone) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  *aAddr = mAddress;
+  mDone = true;
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+SingleDNSAddrRecord::GetAddresses(nsTArray<NetAddr>& aAddressArray) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+// -------------------- ConnectionEstablisher --------------------
+
+ConnectionEstablisher::ConnectionEstablisher(nsHttpConnectionInfo* aConnInfo,
+                                             NetAddrKey aAddrKey,
+                                             uint32_t aCaps)
+    : mConnInfo(aConnInfo), mAddrKey(aAddrKey), mCaps(aCaps) {}
+
+ConnectionEstablisher::~ConnectionEstablisher() = default;
+
+void ConnectionEstablisher::SetConnecting() {
+  MOZ_ASSERT(!mWaitingForConnect);
+  mWaitingForConnect = true;
+  gHttpHandler->ConnMgr()->StartedConnect();
+}
+
+void ConnectionEstablisher::MaybeSetConnectingDone() {
+  if (mWaitingForConnect) {
+    mWaitingForConnect = false;
+    gHttpHandler->ConnMgr()->RecvdConnect();
+  }
+}
+
+NS_IMPL_ISUPPORTS(TCPConnectionEstablisher, nsIOutputStreamCallback,
+                  nsITransportEventSink, nsIInterfaceRequestor)
+
+TCPConnectionEstablisher::TCPConnectionEstablisher(
+    nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey, uint32_t aCaps,
+    bool aSpeculative, bool aAllow1918)
+    : ConnectionEstablisher(aConnInfo, aAddrKey, aCaps),
+      mSpeculative(aSpeculative),
+      mAllow1918(aAllow1918) {}
+
+TCPConnectionEstablisher::~TCPConnectionEstablisher() = default;
+
+bool TCPConnectionEstablisher::Start(DoneCallback&& aCallback) {
+  mCallback = std::move(aCallback);
+  mAddrRecord = new SingleDNSAddrRecord(mAddrKey.mAddr, nullptr);
+
+  nsresult rv = CreateAndConfigureSocketTransport();
+  if (NS_FAILED(rv)) {
+    Finish(Err(rv));
+    return false;
+  }
+
+  return true;
+}
+
+void TCPConnectionEstablisher::Close(nsresult aReason) {
+  if (mSocketTransport) {
+    mSocketTransport->SetEventSink(nullptr, nullptr);
+    mSocketTransport->SetSecurityCallbacks(nullptr);
+    mSocketTransport = nullptr;
+  }
+
+  // Tell output stream (and backup) to forget the half open socket.
+  if (mStreamOut) {
+    mStreamOut->AsyncWait(nullptr, 0, 0, nullptr);
+    mStreamOut = nullptr;
+  }
+
+  // Lose references to input stream (and backup).
+  if (mStreamIn) {
+    mStreamIn->AsyncWait(nullptr, 0, 0, nullptr);
+    mStreamIn = nullptr;
+  }
+
+  mConnectedOK = false;
+  Finish(Err(aReason));
+}
+
+nsresult TCPConnectionEstablisher::CreateAndConfigureSocketTransport() {
+  nsresult rv = NS_OK;
+  nsTArray<nsCString> socketTypes;
+  if (mConnInfo->FirstHopSSL()) {
+    socketTypes.AppendElement("ssl"_ns);
+  } else {
+    const nsCString& defaultType = gHttpHandler->DefaultSocketType();
+    if (!defaultType.IsVoid()) {
+      socketTypes.AppendElement(defaultType);
+    }
+  }
+
+  nsCOMPtr<nsISocketTransport> socketTransport;
+  nsCOMPtr<nsISocketTransportService> sts =
+      components::SocketTransport::Service();
+  if (!sts) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+
+  LOG(
+      ("TCPConnectionEstablisher::CreateAndConfigureSocketTransport [this=%p "
+       "info=%s] "
+       "setup routed transport to origin %s:%d via %s:%d\n",
+       this, mConnInfo->HashKey().get(), mConnInfo->Origin(),
+       mConnInfo->OriginPort(), mConnInfo->RoutedHost(),
+       mConnInfo->RoutedPort()));
+
+  nsCOMPtr<nsIRoutedSocketTransportService> routedSTS(do_QueryInterface(sts));
+  if (routedSTS) {
+    rv = routedSTS->CreateRoutedTransport(
+        socketTypes, mConnInfo->GetOrigin(), mConnInfo->OriginPort(),
+        mConnInfo->GetRoutedHost(), mConnInfo->RoutedPort(),
+        mConnInfo->ProxyInfo(), mAddrRecord, getter_AddRefs(socketTransport));
+  } else {
+    if (!mConnInfo->GetRoutedHost().IsEmpty()) {
+      // There is a route requested, but the legacy nsISocketTransportService
+      // can't handle it.
+      // Origin should be reachable on origin host name, so this should
+      // not be a problem - but log it.
+      LOG(
+          ("%p using legacy nsISocketTransportService "
+           "means explicit route %s:%d will be ignored.\n",
+           this, mConnInfo->RoutedHost(), mConnInfo->RoutedPort()));
+    }
+
+    rv = sts->CreateTransport(socketTypes, mConnInfo->GetOrigin(),
+                              mConnInfo->OriginPort(), mConnInfo->ProxyInfo(),
+                              mAddrRecord, getter_AddRefs(socketTransport));
+  }
+
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+
+  uint32_t tmpFlags = 0;
+  if (mCaps & NS_HTTP_REFRESH_DNS) {
+    tmpFlags = nsISocketTransport::BYPASS_CACHE;
+  }
+
+  tmpFlags |= nsISocketTransport::GetFlagsFromTRRMode(
+      NS_HTTP_TRR_MODE_FROM_FLAGS(mCaps));
+
+  if (mCaps & NS_HTTP_LOAD_ANONYMOUS) {
+    tmpFlags |= nsISocketTransport::ANONYMOUS_CONNECT;
+  }
+
+  // When we are making a speculative connection we do not propagate all flags
+  // in mCaps, so we need to query nsHttpConnectionInfo directly as well.
+  if ((mCaps & NS_HTTP_LOAD_ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT) ||
+      mConnInfo->GetAnonymousAllowClientCert()) {
+    tmpFlags |= nsISocketTransport::ANONYMOUS_CONNECT_ALLOW_CLIENT_CERT;
+  }
+
+  if (mConnInfo->GetPrivate()) {
+    tmpFlags |= nsISocketTransport::NO_PERMANENT_STORAGE;
+  }
+
+  (void)socketTransport->SetIsPrivate(mConnInfo->GetPrivate());
+
+  if (mCaps & NS_HTTP_DISALLOW_ECH) {
+    tmpFlags |= nsISocketTransport::DONT_TRY_ECH;
+  }
+
+  if (mCaps & NS_HTTP_IS_RETRY) {
+    tmpFlags |= nsISocketTransport::IS_RETRY;
+  }
+
+  if (((mCaps & NS_HTTP_BE_CONSERVATIVE) || mConnInfo->GetBeConservative()) &&
+      gHttpHandler->ConnMgr()->BeConservativeIfProxied(
+          mConnInfo->ProxyInfo())) {
+    LOG(("Setting Socket to BE_CONSERVATIVE"));
+    tmpFlags |= nsISocketTransport::BE_CONSERVATIVE;
+  }
+
+  // TODO: deal with IPHints later
+  /*if (ci->HasIPHintAddress()) {
+    nsCOMPtr<nsIDNSService> dns;
+    dns = mozilla::components::DNS::Service(&rv);
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    // The spec says: "If A and AAAA records for TargetName are locally
+    // available, the client SHOULD ignore these hints.", so we check if the DNS
+    // record is in cache before setting USE_IP_HINT_ADDRESS.
+    nsCOMPtr<nsIDNSRecord> record;
+    rv = dns->ResolveNative(mHost, nsIDNSService::RESOLVE_OFFLINE,
+                            dnsAndSock->mConnInfo->GetOriginAttributes(),
+                            getter_AddRefs(record));
+    if (NS_FAILED(rv) || !record) {
+      LOG(("Setting Socket to use IP hint address"));
+      tmpFlags |= nsISocketTransport::USE_IP_HINT_ADDRESS;
+    }
+  }*/
+
+  if (!mAllow1918) {
+    tmpFlags |= nsISocketTransport::DISABLE_RFC1918;
+  }
+
+  if (mSpeculative) {
+    tmpFlags |= nsISocketTransport::IS_SPECULATIVE_CONNECTION;
+  }
+
+  socketTransport->SetConnectionFlags(tmpFlags);
+  socketTransport->SetTlsFlags(mConnInfo->GetTlsFlags());
+  socketTransport->SetOriginAttributes(mConnInfo->GetOriginAttributes());
+
+  socketTransport->SetQoSBits(gHttpHandler->GetQoSBits());
+
+  rv = socketTransport->SetEventSink(this, nullptr);
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  // TODO: security callbacks?
+  // rv = socketTransport->SetSecurityCallbacks(dnsAndSock);
+  // NS_ENSURE_SUCCESS(rv, rv);
+
+  // TODO: set ECH later
+  /*if (nsHttpHandler::EchConfigEnabled() && !ci->GetEchConfig().IsEmpty()) {
+    MOZ_ASSERT(!dnsAndSock->mIsHttp3);
+    LOG(("Setting ECH"));
+    rv = socketTransport->SetEchConfig(ci->GetEchConfig());
+    NS_ENSURE_SUCCESS(rv, rv);
+
+    NotifyActivity(dnsAndSock->mConnInfo, NS_HTTP_ACTIVITY_SUBTYPE_ECH_SET);
+  }*/
+
+  mSynStarted = TimeStamp::Now();
+
+  nsCOMPtr<nsIOutputStream> sout;
+  rv = socketTransport->OpenOutputStream(nsITransport::OPEN_UNBUFFERED, 0, 0,
+                                         getter_AddRefs(sout));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  nsCOMPtr<nsIInputStream> sin;
+  rv = socketTransport->OpenInputStream(nsITransport::OPEN_UNBUFFERED, 0, 0,
+                                        getter_AddRefs(sin));
+  NS_ENSURE_SUCCESS(rv, rv);
+
+  mSocketTransport = socketTransport.forget();
+  mStreamIn = do_QueryInterface(sin);
+  mStreamOut = do_QueryInterface(sout);
+
+  rv = mStreamOut->AsyncWait(this, 0, 0, nullptr);
+  return rv;
+}
+
+void TCPConnectionEstablisher::Finish(
+    Result<RefPtr<HttpConnectionBase>, nsresult>&& aResult) {
+  if (mFinished) {
+    return;
+  }
+  mFinished = true;
+
+  // Release resources promptly.
+  mStreamOut = nullptr;
+  mStreamIn = nullptr;
+  mSocketTransport = nullptr;
+
+  if (mCallback) {
+    auto cb = std::move(mCallback);
+    mCallback = nullptr;
+    mHandle->Reset();
+    cb(std::move(aResult));
+  }
+}
+
+NS_IMETHODIMP
+TCPConnectionEstablisher::GetInterface(const nsIID& iid, void** result) {
+  return NS_ERROR_NO_INTERFACE;
+}
+
+NS_IMETHODIMP
+TCPConnectionEstablisher::OnTransportStatus(nsITransport* trans,
+                                            nsresult status, int64_t progress,
+                                            int64_t progressMax) {
+  if (status == NS_NET_STATUS_CONNECTED_TO) {
+    mConnectedOK = true;
+  }
+
+  return NS_OK;
+}
+
+NS_IMETHODIMP
+TCPConnectionEstablisher::OnOutputStreamReady(nsIAsyncOutputStream* aOut) {
+  MOZ_DIAGNOSTIC_ASSERT(mStreamOut == aOut, "stream mismatch");
+
+  if (mFinished) {
+    return NS_OK;
+  }
+
+  // Create nsHttpConnection when the output stream is ready.
+  RefPtr<nsHttpConnection> conn = new nsHttpConnection();
+
+  // TODO:
+  // 1. BootstrapTimings
+  // 2. SetTransactionCaps
+  // 3. SetSecurityCallbacks
+  // 4. RecordIPFamilyPreference
+
+  nsresult rv = conn->Init(
+      mConnInfo, gHttpHandler->ConnMgr()->mMaxRequestDelay, mSocketTransport,
+      mStreamIn, mStreamOut, mConnectedOK, NS_OK, this,
+      PR_MillisecondsToInterval(static_cast<uint32_t>(
+          (TimeStamp::Now() - mSynStarted).ToMilliseconds())),
+      mCaps & NS_HTTP_ALLOW_SPDY_WITHOUT_KEEPALIVE);
+
+  if (NS_FAILED(rv)) {
+    Finish(Err(rv));
+    return NS_OK;
+  }
+
+  mHasConnected = true;
+
+  mSocketTransport = nullptr;
+  mStreamOut = nullptr;
+  mStreamIn = nullptr;
+
+  RefPtr<HttpConnectionBase> resultConn = conn;
+  auto callback = [self = RefPtr{this}, resultConn](nsresult aResult) {
+    if (NS_FAILED(aResult)) {
+      self->Finish(Err(aResult));
+      return;
+    }
+
+    NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+        "TCPConnectionEstablisher::DoneCallback",
+        [self, resultConn]() { self->Finish(std::move(resultConn)); }));
+  };
+
+  RefPtr<SpeculativeTransaction> trans =
+      new SpeculativeTransaction(mConnInfo, this, mCaps, std::move(callback));
+
+  LOG((
+      "speculative transaction %p will be used to finish SSL handshake on conn "
+      "%p\n",
+      trans.get(), conn.get()));
+
+  mHandle = new ConnectionHandle(conn);
+  // give the transaction the indirect reference to the connection.
+  trans->SetConnection(mHandle);
+
+  rv = conn->Activate(trans, mCaps, 0);
+
+  if (NS_FAILED(rv)) {
+    Finish(Err(rv));
+    return NS_OK;
+  }
+
+  return NS_OK;
+}
+
+}  // namespace mozilla::net
