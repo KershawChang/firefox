@@ -153,6 +153,8 @@ impl HappyEyeballs {
         };
 
         let out = self.inner.process(input, std::time::Instant::now());
+        // TODO: Should we introduce input_data and output_data?
+        data.clear();
         match out {
             Some(happy_eyeballs::Output::SendDnsQuery {
                 hostname: _hostname,
