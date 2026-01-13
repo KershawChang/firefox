@@ -15,10 +15,11 @@ namespace net {
 class HappyEyeballsAPI final {
  public:
   static nsresult Init(HappyEyeballs** aHappyEyeballs,
-                       const nsACString& aOrigin,
-                       uint16_t aPort) {
+                       const nsACString& aOrigin, uint16_t aPort,
+                       const AltSvc* aAltSvc = nullptr,
+                       uint32_t aAltSvcLen = 0) {
     return happy_eyeballs_new((const HappyEyeballs**)aHappyEyeballs, &aOrigin,
-                              aPort);
+                              aPort, aAltSvc, aAltSvcLen);
   }
 };
 

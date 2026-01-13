@@ -201,6 +201,8 @@ pub extern "C" fn happy_eyeballs_new(
     result: &mut *const HappyEyeballs,
     origin: *const nsACString,
     port: u16,
+    alt_svc: *const AltSvc,
+    alt_svc_len: u32,
 ) -> nsresult {
     *result = ptr::null_mut();
 
@@ -210,18 +212,49 @@ pub extern "C" fn happy_eyeballs_new(
 
     let origin_str = unsafe { (&*origin).to_utf8().to_string() };
 
-    let happy_eyeballs = match HappyEyeballs::new(origin_str.as_str(), port) {
-        Ok(he) => Box::into_raw(Box::new(he)),
+    let alt_svc_vec = if !alt_svc.is_null() && alt_svc_len > 0 {
+        let slice = unsafe { std::slice::from_raw_parts(alt_svc, alt_svc_len as usize) };
+        slice
+            .iter()
+            .map(|a| happy_eyeballs::AltSvc {
+                host: None,
+                port: None,
+                protocol: a.protocol.into(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let network_config = happy_eyeballs::NetworkConfig {
+        alt_svc: alt_svc_vec,
+        ..Default::default()
+    };
+
+    let happy_eyeballs = match happy_eyeballs::HappyEyeballs::new_with_network_config(
+        origin_str.as_str(),
+        port,
+        network_config,
+    ) {
+        Ok(he) => Box::into_raw(Box::new(HappyEyeballs {
+            refcnt: unsafe { AtomicRefcnt::new() },
+            inner: he,
+        })),
         Err(_) => return NS_ERROR_UNEXPECTED,
     };
 
     match unsafe { RefPtr::from_raw(happy_eyeballs) } {
         Some(ptr) => {
-            unsafe { ptr.forget(result) };
+            ptr.forget(result);
             NS_OK
         }
         None => NS_ERROR_UNEXPECTED,
     }
+}
+
+#[repr(C)]
+pub struct AltSvc {
+    pub protocol: Protocol,
 }
 
 #[repr(C)]
@@ -232,11 +265,39 @@ pub enum DnsRecordType {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
+pub enum Protocol {
+    H3 = 0,
+    H2 = 1,
+    H1 = 2,
+}
+
+#[repr(C)]
 pub enum ProtocolCombination {
     H3 = 0,
     H2OrH1 = 1,
     H2 = 2,
     H1 = 3,
+}
+
+impl From<Protocol> for happy_eyeballs::Protocol {
+    fn from(v: Protocol) -> Self {
+        match v {
+            Protocol::H3 => Self::H3,
+            Protocol::H2 => Self::H2,
+            Protocol::H1 => Self::H1,
+        }
+    }
+}
+
+impl From<happy_eyeballs::Protocol> for Protocol {
+    fn from(v: happy_eyeballs::Protocol) -> Self {
+        match v {
+            happy_eyeballs::Protocol::H3 => Self::H3,
+            happy_eyeballs::Protocol::H2 => Self::H2,
+            happy_eyeballs::Protocol::H1 => Self::H1,
+        }
+    }
 }
 
 impl From<happy_eyeballs::DnsRecordType> for DnsRecordType {
