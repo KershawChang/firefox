@@ -152,7 +152,11 @@ impl HappyEyeballs {
             }
         };
 
-        let out = self.inner.process(input, std::time::Instant::now());
+        if let Some(input) = input {
+            self.inner.process_input(input);
+        }
+
+        let out = self.inner.process_output(std::time::Instant::now());
         // TODO: Should we introduce input_data and output_data?
         data.clear();
         match out {
