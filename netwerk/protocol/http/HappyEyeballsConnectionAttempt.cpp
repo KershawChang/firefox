@@ -34,11 +34,13 @@ HappyEyeballsConnectionAttempt::HappyEyeballsConnectionAttempt(
   if (mConnInfo->GetRoutedHost().IsEmpty()) {
     mHost = mConnInfo->GetOrigin();
     (void)happy_eyeballs_new(&mHappyEyeballs, &mHost,
-                             static_cast<uint16_t>(mConnInfo->OriginPort()));
+                             static_cast<uint16_t>(mConnInfo->OriginPort()),
+                             nullptr, 0);
   } else {
     mHost = mConnInfo->GetRoutedHost();
     (void)happy_eyeballs_new(&mHappyEyeballs, &mHost,
-                             static_cast<uint16_t>(mConnInfo->RoutedPort()));
+                             static_cast<uint16_t>(mConnInfo->RoutedPort()),
+                             nullptr, 0);
   }
 }
 
@@ -138,6 +140,11 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsEvents(
         CancelConnection(res.unwrap());
         break;
       }
+
+      case HappyEyeballsEvent::Tag::Failed:
+        LOG(("HappyEyeballsEvent::Tag::Failed"));
+        Abandon();
+        return NS_ERROR_CONNECTION_REFUSED;
 
       case HappyEyeballsEvent::Tag::None:
         LOG(("HappyEyeballsEvent::Tag::None"));

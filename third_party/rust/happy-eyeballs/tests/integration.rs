@@ -507,6 +507,23 @@ mod section_4_hostname_resolution {
             now,
         );
     }
+
+    #[test]
+    fn dns_failed() {
+        let (now, mut he) = setup();
+
+        he.expect(
+            vec![
+                (None, Some(out_send_dns_https())),
+                (None, Some(out_send_dns_aaaa())),
+                (None, Some(out_send_dns_a())),
+                (Some(in_dns_https_negative()), Some(out_resolution_delay())),
+                (Some(in_dns_aaaa_negative()), Some(out_resolution_delay())),
+                (Some(in_dns_a_negative()), Some(Output::Failed)),
+            ],
+            now,
+        );
+    }
 }
 
 // TODO: Move to own file?
@@ -662,6 +679,43 @@ mod section_6_connection_attempts {
                 }),
                 Some(out_attempt_v4()),
             )],
+            now,
+        );
+    }
+
+    #[test]
+    fn all_connections_failed() {
+        let (now, mut he) = setup();
+
+        he.expect(
+            vec![
+                (None, Some(out_send_dns_https())),
+                (None, Some(out_send_dns_aaaa())),
+                (None, Some(out_send_dns_a())),
+                (
+                    Some(in_dns_https_positive_no_alpn()),
+                    Some(out_resolution_delay()),
+                ),
+                (Some(in_dns_aaaa_positive()), Some(out_attempt_v6())),
+                (
+                    Some(in_dns_a_positive()),
+                    Some(out_connection_attempt_delay()),
+                ),
+                (
+                    Some(Input::ConnectionResult {
+                        address: SocketAddr::new(V6_ADDR.into(), PORT),
+                        result: Err("connection refused".to_string()),
+                    }),
+                    Some(out_attempt_v4()),
+                ),
+                (
+                    Some(Input::ConnectionResult {
+                        address: SocketAddr::new(V4_ADDR.into(), PORT),
+                        result: Err("connection refused".to_string()),
+                    }),
+                    Some(Output::Failed),
+                ),
+            ],
             now,
         );
     }

@@ -187,6 +187,9 @@ impl HappyEyeballs {
                     port: addr.port(),
                 };
             }
+            Some(happy_eyeballs::Output::Failed) => {
+                *ret_event = Output::Failed;
+            }
             None => {
                 *ret_event = Output::None;
             }
@@ -345,6 +348,7 @@ pub enum Output {
     Timer { duration_ms: u64 },
     AttemptConnection { protocol: ProtocolCombination, port: u16 },
     CancelConnection { port: u16 },
+    Failed,
     None,
 }
 
