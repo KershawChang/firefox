@@ -36,113 +36,120 @@ impl HappyEyeballs {
         })
     }
 
-    fn process_input(
+    fn process_dns_response_a(
         &mut self,
-        input_kind: InputKind,
         hostname: *const nsACString,
         addrs: *const NetAddr,
         addrs_len: u32,
-        data: &ThinVec<u8>,
     ) -> nsresult {
-        let input = match input_kind {
-            InputKind::ConnectionResult => {
-                if addrs.is_null() || addrs_len != 1 {
-                    return NS_ERROR_UNEXPECTED;
-                }
-                let netaddr = unsafe { &*addrs };
-                let port = u16::from_be(unsafe { moz_netaddr_get_network_order_port(netaddr) });
+        if hostname.is_null() {
+            return NS_ERROR_UNEXPECTED;
+        }
+        let host = unsafe { (&*hostname).to_utf8().to_string() };
+        let name = happy_eyeballs::TargetName::from(host.as_str());
 
-                let ipv6_ptr = unsafe { moz_netaddr_get_ipv6(netaddr) };
-                let address = if !ipv6_ptr.is_null() {
-                    let octs: [u8; 16] = unsafe {
-                        std::slice::from_raw_parts(ipv6_ptr, 16)
-                            .try_into()
-                            .unwrap()
-                    };
-                    let ipv6 = Ipv6Addr::from(octs);
-                    SocketAddr::from((ipv6, port))
-                } else {
-                    let ip_be = unsafe { moz_netaddr_get_network_order_ip(netaddr) };
-                    let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
-                    SocketAddr::from((ipv4, port))
-                };
-
-                let result = if data.is_empty() {
-                    Ok(())
-                } else {
-                    let error_msg = match std::str::from_utf8(data.as_slice()) {
-                        Ok(s) => s.to_string(),
-                        Err(_) => String::from("connection failed"),
-                    };
-                    Err(error_msg)
-                };
-                happy_eyeballs::Input::ConnectionResult { address, result }
+        let inner = if addrs_len == 0 {
+            happy_eyeballs::DnsResultInner::A(Ok(Vec::new()))
+        } else {
+            if addrs.is_null() {
+                return NS_ERROR_UNEXPECTED;
             }
-            InputKind::DnsResponseA | InputKind::DnsResponseAaaa => {
-                if hostname.is_null() {
-                    return NS_ERROR_UNEXPECTED;
-                }
-                let host = unsafe { (&*hostname).to_utf8().to_string() };
-                let name = happy_eyeballs::TargetName::from(host.as_str());
-                if addrs_len == 0 {
-                    let inner = match input_kind {
-                        InputKind::DnsResponseA => {
-                            happy_eyeballs::DnsResultInner::A(Ok(Vec::new()))
-                        }
-                        InputKind::DnsResponseAaaa => {
-                            happy_eyeballs::DnsResultInner::Aaaa(Ok(Vec::new()))
-                        }
-                        _ => unreachable!(),
-                    };
-                    happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
-                        target_name: name,
-                        inner,
-                    })
-                } else {
-                    if addrs.is_null() {
-                        return NS_ERROR_UNEXPECTED;
-                    }
-                    let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
-                    let inner = match input_kind {
-                        InputKind::DnsResponseA => {
-                            let mut out = Vec::with_capacity(slice.len());
-                            for na in slice.iter() {
-                                let ip_be = unsafe {
-                                    moz_netaddr_get_network_order_ip(
-                                        (na as *const NetAddr).cast(),
-                                    )
-                                };
-                                let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
-                                out.push(ipv4);
-                            }
-                            happy_eyeballs::DnsResultInner::A(Ok(out))
-                        }
-                        InputKind::DnsResponseAaaa => {
-                            let mut out = Vec::with_capacity(slice.len());
-                            for na in slice.iter() {
-                                let p =
-                                    unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
-                                if p.is_null() {
-                                    return NS_ERROR_UNEXPECTED;
-                                }
-                                let octs: [u8; 16] = unsafe {
-                                    std::slice::from_raw_parts(p, 16).try_into().unwrap()
-                                };
-                                let ipv6 = Ipv6Addr::from(octs);
-                                out.push(ipv6);
-                            }
-                            happy_eyeballs::DnsResultInner::Aaaa(Ok(out))
-                        }
-                        _ => unreachable!(),
-                    };
-                    happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
-                        target_name: name,
-                        inner,
-                    })
-                }
+            let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
+            let mut out = Vec::with_capacity(slice.len());
+            for na in slice.iter() {
+                let ip_be =
+                    unsafe { moz_netaddr_get_network_order_ip((na as *const NetAddr).cast()) };
+                let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+                out.push(ipv4);
             }
+            happy_eyeballs::DnsResultInner::A(Ok(out))
         };
 
+        let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
+            target_name: name,
+            inner,
+        });
+        self.inner.process_input(input);
+
+        NS_OK
+    }
+
+    fn process_dns_response_aaaa(
+        &mut self,
+        hostname: *const nsACString,
+        addrs: *const NetAddr,
+        addrs_len: u32,
+    ) -> nsresult {
+        if hostname.is_null() {
+            return NS_ERROR_UNEXPECTED;
+        }
+        let host = unsafe { (&*hostname).to_utf8().to_string() };
+        let name = happy_eyeballs::TargetName::from(host.as_str());
+
+        let inner = if addrs_len == 0 {
+            happy_eyeballs::DnsResultInner::Aaaa(Ok(Vec::new()))
+        } else {
+            if addrs.is_null() {
+                return NS_ERROR_UNEXPECTED;
+            }
+            let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
+            let mut out = Vec::with_capacity(slice.len());
+            for na in slice.iter() {
+                let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
+                if p.is_null() {
+                    return NS_ERROR_UNEXPECTED;
+                }
+                let octs: [u8; 16] =
+                    unsafe { std::slice::from_raw_parts(p, 16).try_into().unwrap() };
+                let ipv6 = Ipv6Addr::from(octs);
+                out.push(ipv6);
+            }
+            happy_eyeballs::DnsResultInner::Aaaa(Ok(out))
+        };
+
+        let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
+            target_name: name,
+            inner,
+        });
+        self.inner.process_input(input);
+
+        NS_OK
+    }
+
+    fn process_connection_result(
+        &mut self,
+        addr: *const NetAddr,
+        data: &ThinVec<u8>,
+    ) -> nsresult {
+        if addr.is_null() {
+            return NS_ERROR_UNEXPECTED;
+        }
+        let netaddr = unsafe { &*addr };
+        let port = u16::from_be(unsafe { moz_netaddr_get_network_order_port(netaddr) });
+
+        let ipv6_ptr = unsafe { moz_netaddr_get_ipv6(netaddr) };
+        let address = if !ipv6_ptr.is_null() {
+            let octs: [u8; 16] =
+                unsafe { std::slice::from_raw_parts(ipv6_ptr, 16).try_into().unwrap() };
+            let ipv6 = Ipv6Addr::from(octs);
+            SocketAddr::from((ipv6, port))
+        } else {
+            let ip_be = unsafe { moz_netaddr_get_network_order_ip(netaddr) };
+            let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+            SocketAddr::from((ipv4, port))
+        };
+
+        let result = if data.is_empty() {
+            Ok(())
+        } else {
+            let error_msg = match std::str::from_utf8(data.as_slice()) {
+                Ok(s) => s.to_string(),
+                Err(_) => String::from("connection failed"),
+            };
+            Err(error_msg)
+        };
+
+        let input = happy_eyeballs::Input::ConnectionResult { address, result };
         self.inner.process_input(input);
 
         NS_OK
@@ -331,13 +338,6 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 }
 
 #[repr(C)]
-pub enum InputKind {
-    DnsResponseA = 2,
-    DnsResponseAaaa = 3,
-    ConnectionResult = 4,
-}
-
-#[repr(C)]
 pub enum Output {
     SendDnsQuery { record_type: DnsRecordType },
     Timer { duration_ms: u64 },
@@ -348,15 +348,32 @@ pub enum Output {
 }
 
 #[no_mangle]
-pub extern "C" fn happy_eyeballs_process_input(
+pub extern "C" fn happy_eyeballs_process_dns_response_a(
     he: &mut HappyEyeballs,
-    input_kind: InputKind,
     hostname: *const nsACString,
     addrs: *const NetAddr,
     addrs_len: u32,
+) -> nsresult {
+    he.process_dns_response_a(hostname, addrs, addrs_len)
+}
+
+#[no_mangle]
+pub extern "C" fn happy_eyeballs_process_dns_response_aaaa(
+    he: &mut HappyEyeballs,
+    hostname: *const nsACString,
+    addrs: *const NetAddr,
+    addrs_len: u32,
+) -> nsresult {
+    he.process_dns_response_aaaa(hostname, addrs, addrs_len)
+}
+
+#[no_mangle]
+pub extern "C" fn happy_eyeballs_process_connection_result(
+    he: &mut HappyEyeballs,
+    addr: *const NetAddr,
     data: &ThinVec<u8>,
 ) -> nsresult {
-    he.process_input(input_kind, hostname, addrs, addrs_len, data)
+    he.process_connection_result(addr, data)
 }
 
 #[no_mangle]

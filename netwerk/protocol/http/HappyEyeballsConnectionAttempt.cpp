@@ -75,17 +75,39 @@ static Result<NetAddr, nsresult> ToNetAddr(const nsTArray<uint8_t>& aData,
   return addr;
 }
 
-nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsInput(
-    HappyEyeballsInputKind aInputKind, const nsACString& aHost,
-    const NetAddr* aAddresses, uint32_t aAddrLen) {
-  LOG(("HappyEyeballsConnectionAttempt::ProcessHappyEyeballsInput %p", this));
+nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseA(
+    const nsACString& aHost, const NetAddr* aAddresses, uint32_t aAddrLen) {
+  LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseA %p", this));
+
+  nsresult rv = happy_eyeballs_process_dns_response_a(
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aAddresses, aAddrLen);
+  if (NS_FAILED(rv)) {
+    LOG(("process_dns_response_a failed rv=%x", static_cast<uint32_t>(rv)));
+  }
+  return rv;
+}
+
+nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA(
+    const nsACString& aHost, const NetAddr* aAddresses, uint32_t aAddrLen) {
+  LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA %p", this));
+
+  nsresult rv = happy_eyeballs_process_dns_response_aaaa(
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aAddresses, aAddrLen);
+  if (NS_FAILED(rv)) {
+    LOG(("process_dns_response_aaaa failed rv=%x", static_cast<uint32_t>(rv)));
+  }
+  return rv;
+}
+
+nsresult HappyEyeballsConnectionAttempt::ProcessConnectionResult(
+    const NetAddr& aAddr) {
+  LOG(("HappyEyeballsConnectionAttempt::ProcessConnectionResult %p", this));
 
   nsTArray<uint8_t> heData;
-  nsresult rv = happy_eyeballs_process_input(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), aInputKind, &aHost,
-      aAddresses, aAddrLen, &heData);
+  nsresult rv = happy_eyeballs_process_connection_result(
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aAddr, &heData);
   if (NS_FAILED(rv)) {
-    LOG(("process_input failed rv=%x", static_cast<uint32_t>(rv)));
+    LOG(("process_connection_result failed rv=%x", static_cast<uint32_t>(rv)));
   }
   return rv;
 }
@@ -459,8 +481,7 @@ nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
   mARecord = do_QueryInterface(aRecord);
   nsresult rv;
   if (NS_FAILED(status) || !mARecord) {
-    rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseA, mHost,
-                                   nullptr, 0);
+    rv = ProcessDnsResponseA(mHost, nullptr, 0);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -471,8 +492,7 @@ nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
   mARecord->GetAddresses(addresses);
   size_t len = 0;
   UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len);
-  rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseA, mHost,
-                                 rawArray.get(), len);
+  rv = ProcessDnsResponseA(mHost, rawArray.get(), len);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -493,8 +513,7 @@ nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
   mAAAARecord = do_QueryInterface(aRecord);
   nsresult rv;
   if (NS_FAILED(status) || !mAAAARecord) {
-    rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseAaaa,
-                                   mHost, nullptr, 0);
+    rv = ProcessDnsResponseAAAA(mHost, nullptr, 0);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -505,8 +524,7 @@ nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
   mAAAARecord->GetAddresses(addresses);
   size_t len = 0;
   UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len);
-  rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseAaaa, mHost,
-                                 rawArray.get(), len);
+  rv = ProcessDnsResponseAAAA(mHost, rawArray.get(), len);
   if (NS_FAILED(rv)) {
     return rv;
   }
