@@ -49,10 +49,11 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
  private:
   ~HappyEyeballsConnectionAttempt();
 
-  nsresult ProcessHappyEyeballsEvents(HappyEyeballsInputKind aInputKind,
-                                      const nsACString& aHost,
-                                      const NetAddr* aAddresses,
-                                      uint32_t aAddrLen);
+  nsresult ProcessHappyEyeballsInput(HappyEyeballsInputKind aInputKind,
+                                     const nsACString& aHost,
+                                     const NetAddr* aAddresses,
+                                     uint32_t aAddrLen);
+  nsresult ProcessHappyEyeballsOutput();
   // DNS lookups
   Result<nsIDNSService::DNSFlags, nsresult> SetupDnsFlags(DnsRecordType aType);
   nsresult DNSLookup(DnsRecordType aType, nsIDNSService::DNSFlags aFlags);

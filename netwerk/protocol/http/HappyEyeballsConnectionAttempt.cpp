@@ -54,8 +54,7 @@ HappyEyeballsConnectionAttempt::~HappyEyeballsConnectionAttempt() {
 
 nsresult HappyEyeballsConnectionAttempt::Init(ConnectionEntry* ent) {
   mEntry = ent;
-  return ProcessHappyEyeballsEvents(HappyEyeballsInputKind::None, mHost,
-                                    nullptr, 0);
+  return ProcessHappyEyeballsOutput();
 }
 
 static Result<NetAddr, nsresult> ToNetAddr(const nsTArray<uint8_t>& aData,
@@ -76,20 +75,33 @@ static Result<NetAddr, nsresult> ToNetAddr(const nsTArray<uint8_t>& aData,
   return addr;
 }
 
-nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsEvents(
+nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsInput(
     HappyEyeballsInputKind aInputKind, const nsACString& aHost,
     const NetAddr* aAddresses, uint32_t aAddrLen) {
-  LOG(("HappyEyeballsConnectionAttempt::ProcessHappyEyeballsEvents %p", this));
+  LOG(("HappyEyeballsConnectionAttempt::ProcessHappyEyeballsInput %p", this));
+
+  nsTArray<uint8_t> heData;
+  nsresult rv = happy_eyeballs_process_input(
+      const_cast<HappyEyeballs*>(mHappyEyeballs), aInputKind, &aHost,
+      aAddresses, aAddrLen, &heData);
+  if (NS_FAILED(rv)) {
+    LOG(("process_input failed rv=%x", static_cast<uint32_t>(rv)));
+  }
+  return rv;
+}
+
+nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
+  LOG(("HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput %p", this));
 
   nsresult rv = NS_OK;
+
   while (true) {
     HappyEyeballsEvent event{};
     nsTArray<uint8_t> heData;
-    rv = happy_eyeballs_process(const_cast<HappyEyeballs*>(mHappyEyeballs),
-                                aInputKind, &aHost, aAddresses, aAddrLen,
-                                &event, &heData);
+    rv = happy_eyeballs_process_output(const_cast<HappyEyeballs*>(mHappyEyeballs),
+                                       &event, &heData);
     if (NS_FAILED(rv)) {
-      LOG(("process failed rv=%x", static_cast<uint32_t>(rv)));
+      LOG(("process_output failed rv=%x", static_cast<uint32_t>(rv)));
       return rv;
     }
 
@@ -445,18 +457,26 @@ nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
   // TODO: use NS_ERROR_UNKNOWN_PROXY_HOST if stasus is failed and proxy is used
 
   mARecord = do_QueryInterface(aRecord);
+  nsresult rv;
   if (NS_FAILED(status) || !mARecord) {
-    return ProcessHappyEyeballsEvents(HappyEyeballsInputKind::DnsResponseA,
-                                      mHost, nullptr, 0);
+    rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseA, mHost,
+                                   nullptr, 0);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+    return ProcessHappyEyeballsOutput();
   }
 
   nsTArray<NetAddr> addresses;
   mARecord->GetAddresses(addresses);
   size_t len = 0;
   UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len);
-  (void)ProcessHappyEyeballsEvents(HappyEyeballsInputKind::DnsResponseA, mHost,
-                                   rawArray.get(), len);
-  return NS_OK;
+  rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseA, mHost,
+                                 rawArray.get(), len);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+  return ProcessHappyEyeballsOutput();
 }
 
 nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
@@ -471,18 +491,26 @@ nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
   // TODO: use NS_ERROR_UNKNOWN_PROXY_HOST if stasus is failed and proxy is used
 
   mAAAARecord = do_QueryInterface(aRecord);
+  nsresult rv;
   if (NS_FAILED(status) || !mAAAARecord) {
-    return ProcessHappyEyeballsEvents(HappyEyeballsInputKind::DnsResponseAaaa,
-                                      mHost, nullptr, 0);
+    rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseAaaa,
+                                   mHost, nullptr, 0);
+    if (NS_FAILED(rv)) {
+      return rv;
+    }
+    return ProcessHappyEyeballsOutput();
   }
 
   nsTArray<NetAddr> addresses;
   mAAAARecord->GetAddresses(addresses);
   size_t len = 0;
   UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len);
-  (void)ProcessHappyEyeballsEvents(HappyEyeballsInputKind::DnsResponseAaaa,
-                                   mHost, rawArray.get(), len);
-  return NS_OK;
+  rv = ProcessHappyEyeballsInput(HappyEyeballsInputKind::DnsResponseAaaa, mHost,
+                                 rawArray.get(), len);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+  return ProcessHappyEyeballsOutput();
 }
 
 nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
@@ -493,9 +521,7 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
 
 NS_IMETHODIMP  // method for nsITimerCallback
 HappyEyeballsConnectionAttempt::Notify(nsITimer* timer) {
-  (void)ProcessHappyEyeballsEvents(HappyEyeballsInputKind::None, mHost, nullptr,
-                                   0);
-  return NS_OK;
+  return ProcessHappyEyeballsOutput();
 }
 
 NS_IMETHODIMP  // method for nsINamed

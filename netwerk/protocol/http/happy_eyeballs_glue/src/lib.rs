@@ -36,17 +36,15 @@ impl HappyEyeballs {
         })
     }
 
-    fn process(
+    fn process_input(
         &mut self,
         input_kind: InputKind,
         hostname: *const nsACString,
         addrs: *const NetAddr,
         addrs_len: u32,
-        ret_event: &mut Output,
-        data: &mut ThinVec<u8>,
+        data: &ThinVec<u8>,
     ) -> nsresult {
         let input = match input_kind {
-            InputKind::None => None,
             InputKind::ConnectionResult => {
                 if addrs.is_null() || addrs_len != 1 {
                     return NS_ERROR_UNEXPECTED;
@@ -78,7 +76,7 @@ impl HappyEyeballs {
                     };
                     Err(error_msg)
                 };
-                Some(happy_eyeballs::Input::ConnectionResult { address, result })
+                happy_eyeballs::Input::ConnectionResult { address, result }
             }
             InputKind::DnsResponseA | InputKind::DnsResponseAaaa => {
                 if hostname.is_null() {
@@ -96,12 +94,10 @@ impl HappyEyeballs {
                         }
                         _ => unreachable!(),
                     };
-                    Some(happy_eyeballs::Input::DnsResult(
-                        happy_eyeballs::DnsResult {
-                            target_name: name,
-                            inner,
-                        },
-                    ))
+                    happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
+                        target_name: name,
+                        inner,
+                    })
                 } else {
                     if addrs.is_null() {
                         return NS_ERROR_UNEXPECTED;
@@ -109,7 +105,6 @@ impl HappyEyeballs {
                     let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
                     let inner = match input_kind {
                         InputKind::DnsResponseA => {
-                            // TODO: Sane?
                             let mut out = Vec::with_capacity(slice.len());
                             for na in slice.iter() {
                                 let ip_be = unsafe {
@@ -123,17 +118,15 @@ impl HappyEyeballs {
                             happy_eyeballs::DnsResultInner::A(Ok(out))
                         }
                         InputKind::DnsResponseAaaa => {
-                            // TODO: Sane?
                             let mut out = Vec::with_capacity(slice.len());
                             for na in slice.iter() {
-                                let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
+                                let p =
+                                    unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
                                 if p.is_null() {
                                     return NS_ERROR_UNEXPECTED;
                                 }
                                 let octs: [u8; 16] = unsafe {
-                                    std::slice::from_raw_parts(p, 16)
-                                        .try_into()
-                                        .unwrap()
+                                    std::slice::from_raw_parts(p, 16).try_into().unwrap()
                                 };
                                 let ipv6 = Ipv6Addr::from(octs);
                                 out.push(ipv6);
@@ -142,22 +135,21 @@ impl HappyEyeballs {
                         }
                         _ => unreachable!(),
                     };
-                    Some(happy_eyeballs::Input::DnsResult(
-                        happy_eyeballs::DnsResult {
-                            target_name: name,
-                            inner,
-                        },
-                    ))
+                    happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
+                        target_name: name,
+                        inner,
+                    })
                 }
             }
         };
 
-        if let Some(input) = input {
-            self.inner.process_input(input);
-        }
+        self.inner.process_input(input);
 
+        NS_OK
+    }
+
+    fn process_output(&mut self, ret_event: &mut Output, data: &mut ThinVec<u8>) -> nsresult {
         let out = self.inner.process_output(std::time::Instant::now());
-        // TODO: Should we introduce input_data and output_data?
         data.clear();
         match out {
             Some(happy_eyeballs::Output::SendDnsQuery {
@@ -340,7 +332,6 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 
 #[repr(C)]
 pub enum InputKind {
-    None = 0,
     DnsResponseA = 2,
     DnsResponseAaaa = 3,
     ConnectionResult = 4,
@@ -357,16 +348,24 @@ pub enum Output {
 }
 
 #[no_mangle]
-pub extern "C" fn happy_eyeballs_process(
+pub extern "C" fn happy_eyeballs_process_input(
     he: &mut HappyEyeballs,
     input_kind: InputKind,
     hostname: *const nsACString,
     addrs: *const NetAddr,
     addrs_len: u32,
+    data: &ThinVec<u8>,
+) -> nsresult {
+    he.process_input(input_kind, hostname, addrs, addrs_len, data)
+}
+
+#[no_mangle]
+pub extern "C" fn happy_eyeballs_process_output(
+    he: &mut HappyEyeballs,
     ret_event: &mut Output,
     data: &mut ThinVec<u8>,
 ) -> nsresult {
-    he.process(input_kind, hostname, addrs, addrs_len, ret_event, data)
+    he.process_output(ret_event, data)
 }
 
 #[no_mangle]
