@@ -53,6 +53,16 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                uint32_t aAddrLen);
   nsresult ProcessDnsResponseAAAA(const nsACString& aHost,
                                   const NetAddr* aAddresses, uint32_t aAddrLen);
+  nsresult ProcessDnsResponseHTTPS(const nsACString& aHost, uint16_t aPriority,
+                                   const nsACString& aTargetName,
+                                   const Protocol* aAlpnProtocols,
+                                   uint32_t aAlpnProtocolsLen,
+                                   const uint8_t* aEchConfig,
+                                   uint32_t aEchConfigLen,
+                                   const NetAddr* aIpv4Hints,
+                                   uint32_t aIpv4HintsLen,
+                                   const NetAddr* aIpv6Hints,
+                                   uint32_t aIpv6HintsLen);
   nsresult ProcessConnectionResult(const NetAddr& aAddr);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups

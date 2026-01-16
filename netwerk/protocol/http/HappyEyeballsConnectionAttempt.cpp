@@ -99,6 +99,24 @@ nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA(
   return rv;
 }
 
+nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS(
+    const nsACString& aHost, uint16_t aPriority, const nsACString& aTargetName,
+    const Protocol* aAlpnProtocols, uint32_t aAlpnProtocolsLen,
+    const uint8_t* aEchConfig, uint32_t aEchConfigLen,
+    const NetAddr* aIpv4Hints, uint32_t aIpv4HintsLen, const NetAddr* aIpv6Hints,
+    uint32_t aIpv6HintsLen) {
+  LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS %p", this));
+
+  nsresult rv = happy_eyeballs_process_dns_response_https(
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aPriority,
+      &aTargetName, aAlpnProtocols, aAlpnProtocolsLen, aEchConfig,
+      aEchConfigLen, aIpv4Hints, aIpv4HintsLen, aIpv6Hints, aIpv6HintsLen);
+  if (NS_FAILED(rv)) {
+    LOG(("process_dns_response_https failed rv=%x", static_cast<uint32_t>(rv)));
+  }
+  return rv;
+}
+
 nsresult HappyEyeballsConnectionAttempt::ProcessConnectionResult(
     const NetAddr& aAddr) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessConnectionResult %p", this));
