@@ -175,6 +175,10 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
         break;
       }
 
+      case HappyEyeballsEvent::Tag::Succeeded:
+        LOG(("HappyEyeballsEvent::Tag::Succeeded"));
+        return NS_OK;
+
       case HappyEyeballsEvent::Tag::Failed:
         LOG(("HappyEyeballsEvent::Tag::Failed"));
         Abandon();
