@@ -211,7 +211,7 @@ impl HappyEyeballs {
     fn process_connection_result(
         &mut self,
         addr: *const NetAddr,
-        data: &ThinVec<u8>,
+        status: nsresult,
     ) -> nsresult {
         if addr.is_null() {
             return NS_ERROR_UNEXPECTED;
@@ -231,14 +231,10 @@ impl HappyEyeballs {
             SocketAddr::from((ipv4, port))
         };
 
-        let result = if data.is_empty() {
+        let result = if status == NS_OK {
             Ok(())
         } else {
-            let error_msg = match std::str::from_utf8(data.as_slice()) {
-                Ok(s) => s.to_string(),
-                Err(_) => String::from("connection failed"),
-            };
-            Err(error_msg)
+            Err(format!("connection failed: 0x{:08x}", status.0))
         };
 
         let input = happy_eyeballs::Input::ConnectionResult { address, result };
@@ -497,9 +493,9 @@ pub extern "C" fn happy_eyeballs_process_dns_response_https(
 pub extern "C" fn happy_eyeballs_process_connection_result(
     he: &mut HappyEyeballs,
     addr: *const NetAddr,
-    data: &ThinVec<u8>,
+    status: nsresult,
 ) -> nsresult {
-    he.process_connection_result(addr, data)
+    he.process_connection_result(addr, status)
 }
 
 #[no_mangle]

@@ -63,7 +63,7 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                    uint32_t aIpv4HintsLen,
                                    const NetAddr* aIpv6Hints,
                                    uint32_t aIpv6HintsLen);
-  nsresult ProcessConnectionResult(const NetAddr& aAddr);
+  nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups
   Result<nsIDNSService::DNSFlags, nsresult> SetupDnsFlags(DnsRecordType aType);

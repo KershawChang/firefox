@@ -118,12 +118,11 @@ nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS(
 }
 
 nsresult HappyEyeballsConnectionAttempt::ProcessConnectionResult(
-    const NetAddr& aAddr) {
+    const NetAddr& aAddr, nsresult aStatus) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessConnectionResult %p", this));
 
-  nsTArray<uint8_t> heData;
   nsresult rv = happy_eyeballs_process_connection_result(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), &aAddr, &heData);
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aAddr, aStatus);
   if (NS_FAILED(rv)) {
     LOG(("process_connection_result failed rv=%x", static_cast<uint32_t>(rv)));
   }
