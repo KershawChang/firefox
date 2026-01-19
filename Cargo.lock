@@ -2942,11 +2942,13 @@ name = "happy_eyeballs_glue"
 version = "0.1.0"
 dependencies = [
  "happy-eyeballs",
+ "libc",
  "nserror",
  "nsstring",
  "thin-vec",
  "tracing",
  "tracing-subscriber",
+ "winapi",
  "xpcom",
 ]
 
