@@ -338,8 +338,10 @@ nsresult nsHttpTransaction::Init(
               nsIOService::gDefaultSegmentCount);
 
   bool forceUseHTTPSRR = StaticPrefs::network_dns_force_use_https_rr();
+  LOG(("forceUseHTTPSRR=%d", forceUseHTTPSRR));
   if ((StaticPrefs::network_dns_use_https_rr_as_altsvc() &&
-       !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR)) ||
+       !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR) &&
+       !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) ||
       forceUseHTTPSRR) {
     nsCOMPtr<nsIEventTarget> target;
     (void)gHttpHandler->GetSocketThreadTarget(getter_AddRefs(target));
@@ -405,7 +407,8 @@ void nsHttpTransaction::OnPendingQueueInserted(
 
   // Don't create mHttp3BackupTimer if HTTPS RR is in play.
   if ((mConnInfo->IsHttp3() || mConnInfo->IsHttp3ProxyConnection()) &&
-      !mOrigConnInfo && !mConnInfo->GetWebTransport()) {
+      !mOrigConnInfo && !mConnInfo->GetWebTransport() &&
+      !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) {
     // Backup timer should only be created once.
     if (!mHttp3BackupTimerCreated) {
       CreateAndStartTimer(mHttp3BackupTimer, this,
@@ -498,6 +501,8 @@ void nsHttpTransaction::SetConnection(nsAHttpConnection* conn) {
   {
     MutexAutoLock lock(mLock);
     mConnection = conn;
+    LOG(("nsHttpTransaction::SetConnection %p mconn=%p", this,
+         mConnection.get()));
     if (mConnection) {
       mIsHttp3Used = mConnection->Version() == HttpVersion::v3_0;
     }

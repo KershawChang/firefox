@@ -53,7 +53,7 @@ nsresult ConnectionAttemptPool::StartConnectionEstablishment(
   InsertIntoConnectionAttempts(sock);
 
   if (pendingTransInfo && sock->Claim()) {
-    pendingTransInfo->RememberDnsAndConnectSocket(sock);
+    pendingTransInfo->RememberConnectionAttempt(sock);
   }
 
   return NS_OK;
@@ -125,7 +125,7 @@ bool ConnectionAttemptPool::FindConnToClaim(
       if (!dnsAndSock) {
         continue;
       }
-      pendingTransInfo->RememberDnsAndConnectSocket(dnsAndSock);
+      pendingTransInfo->RememberConnectionAttempt(dnsAndSock);
       // We've found a speculative connection or a connection that
       // is free to be used in the DnsAndConnectSockets list.
       // A free to be used connection is a connection that was

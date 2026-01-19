@@ -938,6 +938,10 @@ void nsHttpConnectionMgr::ReportSpdyConnection(nsHttpConnection* conn,
   if (!conn->ConnectionInfo()) {
     return;
   }
+  if (conn->IsRacing()) {
+    // We are not sure if this connection will be used or not. Don't report it.
+    return;
+  }
   ConnectionEntry* ent = mCT.GetWeak(conn->ConnectionInfo()->HashKey());
   if (!ent || !usingSpdy) {
     return;
@@ -978,6 +982,10 @@ void nsHttpConnectionMgr::ReportHttp3Connection(HttpConnectionBase* conn) {
   }
   ConnectionEntry* ent = mCT.GetWeak(conn->ConnectionInfo()->HashKey());
   if (!ent) {
+    return;
+  }
+  if (conn->IsRacing()) {
+    // We are not sure if this connection will be used or not. Don't report it.
     return;
   }
 

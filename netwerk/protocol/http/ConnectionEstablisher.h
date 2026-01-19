@@ -17,9 +17,13 @@
 namespace mozilla {
 namespace net {
 
-class ConnectionEstablisher {
+class ConnectionEstablisher : public nsITransportEventSink,
+                              public nsIInterfaceRequestor {
  public:
-  NS_INLINE_DECL_PURE_VIRTUAL_REFCOUNTING
+  NS_DECL_THREADSAFE_ISUPPORTS
+
+  NS_DECL_NSITRANSPORTEVENTSINK
+  NS_DECL_NSIINTERFACEREQUESTOR
 
   using DoneCallback =
       std::function<void(Result<RefPtr<HttpConnectionBase>, nsresult>)>;
@@ -29,13 +33,22 @@ class ConnectionEstablisher {
 
   virtual bool Start(DoneCallback&& aCallback) = 0;
   virtual void Close(nsresult aReason) = 0;
+  virtual void ResetSpeculativeFlags() = 0;
   const NetAddrKey& AddrKey() const { return mAddrKey; }
+  void ClearResultConnection();
 
  protected:
   virtual ~ConnectionEstablisher();
 
-  virtual void Finish(
-      Result<RefPtr<HttpConnectionBase>, nsresult>&& aResult) = 0;
+  // Common implementation for activating a connection with a transaction
+  nsresult ActivateConnectionWithTransaction(
+      RefPtr<HttpConnectionBase> aConn,
+      std::function<void(nsresult)> aOnActivated);
+
+  // Common implementation for finishing the establisher
+  void FinishInternal(nsresult aResult);
+
+  virtual void Finish(nsresult aResult) = 0;
   void SetConnecting();
   void MaybeSetConnectingDone();
 
@@ -46,20 +59,18 @@ class ConnectionEstablisher {
   bool mFinished = false;
   bool mWaitingForConnect = false;
   bool mHasConnected = false;
+  bool mConnectedOK = false;
 
   DoneCallback mCallback;
   RefPtr<ConnectionHandle> mHandle;
+  RefPtr<HttpConnectionBase> mResultConn;
 };
 
 class TCPConnectionEstablisher : public ConnectionEstablisher,
-                                 public nsIOutputStreamCallback,
-                                 public nsITransportEventSink,
-                                 public nsIInterfaceRequestor {
+                                 public nsIOutputStreamCallback {
  public:
-  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIOUTPUTSTREAMCALLBACK
-  NS_DECL_NSITRANSPORTEVENTSINK
-  NS_DECL_NSIINTERFACEREQUESTOR
 
   TCPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey,
                            uint32_t aCaps, bool aSpeculative, bool aAllow1918);
@@ -67,23 +78,41 @@ class TCPConnectionEstablisher : public ConnectionEstablisher,
   // Starts creating the socket transport + streams, and arms AsyncWait.
   // If it fails synchronously, the callback is invoked before returning.
   bool Start(DoneCallback&& aCallback) override;
-
+  void ResetSpeculativeFlags() override;
   void Close(nsresult aReason) override;
 
  private:
   ~TCPConnectionEstablisher();
 
   nsresult CreateAndConfigureSocketTransport();
-  void Finish(Result<RefPtr<HttpConnectionBase>, nsresult>&& aResult) override;
+  void Finish(nsresult aResult) override;
 
   TimeStamp mSynStarted;
   bool mSpeculative = false;
   bool mAllow1918 = false;
-  bool mConnectedOK = false;
 
   nsCOMPtr<nsISocketTransport> mSocketTransport;
   nsCOMPtr<nsIAsyncOutputStream> mStreamOut;
   nsCOMPtr<nsIAsyncInputStream> mStreamIn;
+};
+
+class UDPConnectionEstablisher : public ConnectionEstablisher {
+ public:
+  NS_INLINE_DECL_REFCOUNTING_INHERITED(UDPConnectionEstablisher,
+                                       ConnectionEstablisher)
+
+  UDPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey,
+                           uint32_t aCaps);
+
+  bool Start(DoneCallback&& aCallback) override;
+  void ResetSpeculativeFlags() override {}
+  void Close(nsresult aReason) override;
+
+ private:
+  ~UDPConnectionEstablisher();
+
+  nsresult CreateAndConfigureUDPConn();
+  void Finish(nsresult aResult) override;
 };
 
 }  // namespace net

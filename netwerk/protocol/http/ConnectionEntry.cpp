@@ -46,7 +46,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
       mPreferIPv4(false),
       mPreferIPv6(false),
       mUsedForConnection(false),
-        mDoNotDestroy(false) {
+      mDoNotDestroy(false) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
   // mConnectionAttemptPool = new ConnectionAttemptPool(mConnInfo);
@@ -905,10 +905,10 @@ bool ConnectionEntry::RemoveTransFromPendingQ(nsHttpTransaction* aTrans) {
   }
 
   // Abandon all DnsAndConnectSockets belonging to the given transaction.
-  nsWeakPtr tmp = pendingTransInfo->ForgetDnsAndConnectSocketAndActiveConn();
-  RefPtr<DnsAndConnectSocket> dnsAndSock = do_QueryReferent(tmp);
-  if (dnsAndSock) {
-    RemoveConnectionAttempt(dnsAndSock, true);
+  nsWeakPtr tmp = pendingTransInfo->ForgetConnectionAttemptAndActiveConn();
+  RefPtr<ConnectionAttempt> sock = do_QueryReferent(tmp);
+  if (sock) {
+    RemoveConnectionAttempt(sock, true);
   }
   return true;
 }

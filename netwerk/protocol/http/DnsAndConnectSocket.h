@@ -17,7 +17,6 @@
 #include "nsIDNSService.h"
 #include "nsINamed.h"
 #include "nsITransport.h"
-#include "nsWeakReference.h"
 
 namespace mozilla {
 namespace net {
@@ -37,7 +36,6 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
                                   public nsIInterfaceRequestor,
                                   public nsITimerCallback,
                                   public nsINamed,
-                                  public nsSupportsWeakReference,
                                   public nsIDNSListener {
   ~DnsAndConnectSocket();
 
@@ -64,9 +62,8 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
   // Checks whether the transaction can be dispatched using this
   // half-open's connection.  If this half-open is marked as urgent-start,
   // it only accepts urgent start transactions.  Call only before Claim().
-  bool AcceptsTransaction(nsHttpTransaction* trans) override;
+  bool AcceptsTransaction(nsHttpTransaction* trans);
   bool Claim() override;
-  void Unclaim();
 
   DnsAndConnectSocket* ToDnsAndConnectSocket() override { return this; }
 
@@ -220,12 +217,6 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
   PrimaryTransportSetup mPrimaryTransport;
 
   bool mBackupConnStatsSet = false;
-
-  // A DnsAndConnectSocket can be made for a concrete non-null transaction,
-  // but the transaction can be dispatch to another connection. In that
-  // case we can free this transaction to be claimed by other
-  // transactions.
-  bool mFreeToUse = true;
 
   RefPtr<nsHttpConnectionInfo> mConnInfo;
   nsCOMPtr<nsITimer> mSynTimer;

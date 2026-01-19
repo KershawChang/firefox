@@ -1724,7 +1724,8 @@ void nsHttpChannel::SpeculativeConnect() {
   NS_NewNotificationCallbacksAggregation(mCallbacks, mLoadGroup,
                                          getter_AddRefs(callbacks));
   if (!callbacks) return;
-  bool httpsRRAllowed = !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR);
+  bool httpsRRAllowed = !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR) &&
+                        !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS);
   (void)gHttpHandler->MaybeSpeculativeConnectWithHTTPSRR(
       mConnectionInfo, callbacks,
       mCaps & (NS_HTTP_DISALLOW_SPDY | NS_HTTP_TRR_MODE_MASK |
@@ -7945,6 +7946,32 @@ nsresult nsHttpChannel::BeginConnect() {
       mCaps |= NS_HTTP_FORCE_WAIT_HTTP_RR;
     }
   }
+
+  auto canUseHappyEyeballs = [&]() {
+    if (mProxyInfo) {
+      return false;
+    }
+
+    if (!httpsRRAllowed) {
+      return false;
+    }
+
+    if (mWebTransportSessionEventListener) {
+      return false;
+    }
+
+    if (mUpgradeProtocolCallback) {
+      return false;
+    }
+
+    return true;
+  };
+
+  if (canUseHappyEyeballs()) {
+    LOG(("%p NS_HTTP_USE_HAPPY_EYEBALLS ", this));
+    mCaps |= NS_HTTP_USE_HAPPY_EYEBALLS;
+  }
+
   // No need to lookup HTTPSSVC record if mHTTPSSVCRecord already contains a
   // value.
   StoreUseHTTPSSVC(StaticPrefs::network_dns_upgrade_with_https_rr() &&

@@ -850,12 +850,6 @@ DnsAndConnectSocket::GetInterface(const nsIID& iid, void** result) {
   return NS_ERROR_NO_INTERFACE;
 }
 
-bool DnsAndConnectSocket::AcceptsTransaction(nsHttpTransaction* trans) {
-  // When marked as urgent start, only accept urgent start marked transactions.
-  // Otherwise, accept any kind of transaction.
-  return !mUrgentStart || (trans->Caps() & nsIClassOfService::UrgentStart);
-}
-
 bool DnsAndConnectSocket::Claim() {
   if (mSpeculative) {
     mSpeculative = false;
@@ -897,14 +891,6 @@ bool DnsAndConnectSocket::Claim() {
   }
 
   return false;
-}
-
-void DnsAndConnectSocket::Unclaim() {
-  MOZ_ASSERT(!mSpeculative && !mFreeToUse);
-  // We will keep the backup-timer running. Most probably this halfOpen will
-  // be used by a transaction from which this transaction took the halfOpen.
-  // (this is happening because of the transaction priority.)
-  mFreeToUse = true;
 }
 
 void DnsAndConnectSocket::CloseTransports(nsresult error) {

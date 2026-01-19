@@ -225,7 +225,7 @@ void nsHttpTransaction::PrintDiagnostics(nsCString& log) {
 void PendingTransactionInfo::PrintDiagnostics(nsCString& log) {
   log.AppendPrintf("     ::: Pending transaction\n");
   mTransaction->PrintDiagnostics(log);
-  RefPtr<DnsAndConnectSocket> dnsAndSock = do_QueryReferent(mDnsAndSock);
+  RefPtr<DnsAndConnectSocket> dnsAndSock = do_QueryReferent(mConnectionAttempt);
   log.AppendPrintf("     Waiting for half open sock: %p or connection: %p\n",
                    dnsAndSock.get(), mActiveConn.get());
 }

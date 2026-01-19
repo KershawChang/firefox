@@ -288,9 +288,7 @@ impl HappyEyeballs {
             Some(happy_eyeballs::Output::CancelConnection(addr)) => {
                 let addr_str = addr.ip().to_string();
                 data.extend_from_slice(addr_str.as_bytes());
-                *ret_event = Output::CancelConnection {
-                    port: addr.port(),
-                };
+                *ret_event = Output::CancelConnection { port: addr.port() };
             }
             Some(happy_eyeballs::Output::Succeeded) => {
                 *ret_event = Output::Succeeded;

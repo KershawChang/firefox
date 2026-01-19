@@ -416,6 +416,20 @@ nsHttpConnectionInfo::CloneAndAdoptHTTPSSVCRecord(
   return clone.forget();
 }
 
+already_AddRefed<nsHttpConnectionInfo>
+nsHttpConnectionInfo::CloneAndAdoptPortAndAlpn(
+    uint16_t aPort, ProtocolCombination aProtocol) const {
+  // See TlsHandshaker::SetupNPNList, "http/1.1" and "h2" are added
+  // automatically, so we only need to set "h3".
+  nsAutoCString alpnStr(aProtocol == ProtocolCombination::H3 ? "h3"_ns
+                                                             : EmptyCString());
+
+  RefPtr<nsHttpConnectionInfo> clone = new nsHttpConnectionInfo(
+      mOrigin, mOriginPort, alpnStr, mUsername, mProxyInfo, mOriginAttributes,
+      mEndToEndSSL, aProtocol == ProtocolCombination::H3);
+  return clone.forget();
+}
+
 /* static */
 void nsHttpConnectionInfo::SerializeHttpConnectionInfo(
     nsHttpConnectionInfo* aInfo, HttpConnectionInfoCloneArgs& aArgs) {

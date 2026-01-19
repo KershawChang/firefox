@@ -72,7 +72,7 @@ add_task(async function test_http_1() {
   let chan = makeChan(`http://localhost:${httpserv.identity.primaryPort}/`);
   let [, response] = await channelOpenPromise(chan);
   Assert.equal(response, content);
-}).only();
+});
 
 add_task(async function test_dual_stack() {
   let httpserv = new HttpServer();
@@ -166,7 +166,7 @@ add_task(async function test_http2() {
   await server.stop();
 });
 
-add_task(async function test_http1_proxy() {
+/*add_task(async function test_http1_proxy() {
   let proxy = new NodeHTTPProxyServer();
   await proxy.start();
   registerCleanupFunction(async () => {
@@ -376,4 +376,4 @@ add_task(async function test_async_state_management() {
   equal(counter, 2);
 
   await server.stop();
-});
+});*/

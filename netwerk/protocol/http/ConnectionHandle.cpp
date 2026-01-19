@@ -20,6 +20,7 @@ namespace net {
 
 ConnectionHandle::~ConnectionHandle() {
   if (mConn) {
+    LOG(("handle = %p mConn=%p", this, mConn.get()));
     nsresult rv = gHttpHandler->ReclaimConnection(mConn);
     if (NS_FAILED(rv)) {
       LOG(

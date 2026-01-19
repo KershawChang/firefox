@@ -11,6 +11,7 @@
 #include "nsSocketTransportService2.h"
 #include "nsHttpHandler.h"
 #include "nsIDNSRecord.h"
+#include "HttpConnectionUDP.h"
 
 // Log on level :5, instead of default :4.
 #undef LOG
@@ -29,10 +30,12 @@ class SingleDNSAddrRecord final : public nsIDNSAddrRecord {
   NS_DECL_NSIDNSADDRRECORD
 
   SingleDNSAddrRecord(NetAddr aAddr, nsIDNSAddrRecord* aRecord)
-      : mAddress(aAddr), mInner(aRecord) {}
+      : mAddress(aAddr), mInner(aRecord) {
+    LOG(("SingleDNSAddrRecord ctor:%p", this));
+  }
 
  private:
-  ~SingleDNSAddrRecord() = default;
+  ~SingleDNSAddrRecord() { LOG(("SingleDNSAddrRecord dtor:%p", this)); }
 
   nsCString mCanonicalName;
   NetAddr mAddress;
@@ -186,12 +189,19 @@ SingleDNSAddrRecord::GetAddresses(nsTArray<NetAddr>& aAddressArray) {
 
 // -------------------- ConnectionEstablisher --------------------
 
+NS_IMPL_ISUPPORTS(ConnectionEstablisher, nsITransportEventSink,
+                  nsIInterfaceRequestor)
+
 ConnectionEstablisher::ConnectionEstablisher(nsHttpConnectionInfo* aConnInfo,
                                              NetAddrKey aAddrKey,
                                              uint32_t aCaps)
-    : mConnInfo(aConnInfo), mAddrKey(aAddrKey), mCaps(aCaps) {}
+    : mConnInfo(aConnInfo), mAddrKey(aAddrKey), mCaps(aCaps) {
+  LOG(("ConnectionEstablisher ctor:%p", this));
+}
 
-ConnectionEstablisher::~ConnectionEstablisher() = default;
+ConnectionEstablisher::~ConnectionEstablisher() {
+  LOG(("ConnectionEstablisher dtor:%p", this));
+}
 
 void ConnectionEstablisher::SetConnecting() {
   MOZ_ASSERT(!mWaitingForConnect);
@@ -206,8 +216,96 @@ void ConnectionEstablisher::MaybeSetConnectingDone() {
   }
 }
 
-NS_IMPL_ISUPPORTS(TCPConnectionEstablisher, nsIOutputStreamCallback,
-                  nsITransportEventSink, nsIInterfaceRequestor)
+void ConnectionEstablisher::ClearResultConnection() { mResultConn = nullptr; }
+
+nsresult ConnectionEstablisher::ActivateConnectionWithTransaction(
+    RefPtr<HttpConnectionBase> aConn,
+    std::function<void(nsresult)> aOnActivated) {
+  LOG(("ConnectionEstablisher::ActivateConnectionWithTransaction %p conn=%p",
+       this, aConn.get()));
+
+  aConn->SetIsRacing(true);
+
+  mHasConnected = true;
+  mResultConn = aConn;
+
+  auto callback = [self = RefPtr{this},
+                   onActivated = std::move(aOnActivated)](nsresult aResult) {
+    if (NS_FAILED(aResult)) {
+      self->Finish(aResult);
+      return;
+    }
+
+    NS_DispatchToCurrentThread(
+        NS_NewRunnableFunction("ConnectionEstablisher::ActivateCallback",
+                               [self, onActivated = std::move(onActivated)]() {
+                                 onActivated(NS_OK);
+                               }));
+  };
+
+  RefPtr<SpeculativeTransaction> trans =
+      new SpeculativeTransaction(mConnInfo, this, mCaps, std::move(callback));
+
+  LOG(("speculative transaction %p will be used to finish handshake on conn %p",
+       trans.get(), aConn.get()));
+
+  mHandle = new ConnectionHandle(aConn);
+  trans->SetConnection(mHandle);
+
+  nsresult rv = aConn->Activate(trans, mCaps, 0);
+  if (NS_FAILED(rv)) {
+    Finish(rv);
+    return rv;
+  }
+
+  return NS_OK;
+}
+
+void ConnectionEstablisher::FinishInternal(nsresult aResult) {
+  LOG(("ConnectionEstablisher::FinishInternal %p result=%x", this,
+       static_cast<uint32_t>(aResult)));
+
+  if (mFinished) {
+    return;
+  }
+  mFinished = true;
+
+  mAddrRecord = nullptr;
+
+  if (mCallback) {
+    auto cb = std::move(mCallback);
+    mCallback = nullptr;
+    if (mHandle && mHandle->Conn() && !mHandle->Conn()->UsingSpdy() &&
+        !mHandle->Conn()->UsingHttp3()) {
+      mHandle->Reset();
+    }
+
+    if (NS_SUCCEEDED(aResult) && mResultConn) {
+      cb(std::move(mResultConn));
+    } else {
+      cb(Err(aResult));
+    }
+  }
+}
+
+NS_IMETHODIMP
+ConnectionEstablisher::GetInterface(const nsIID& iid, void** result) {
+  return NS_ERROR_NO_INTERFACE;
+}
+
+NS_IMETHODIMP
+ConnectionEstablisher::OnTransportStatus(nsITransport* trans, nsresult status,
+                                         int64_t progress,
+                                         int64_t progressMax) {
+  if (status == NS_NET_STATUS_CONNECTED_TO) {
+    mConnectedOK = true;
+  }
+
+  return NS_OK;
+}
+
+NS_IMPL_ISUPPORTS_INHERITED(TCPConnectionEstablisher, ConnectionEstablisher,
+                            nsIOutputStreamCallback)
 
 TCPConnectionEstablisher::TCPConnectionEstablisher(
     nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey, uint32_t aCaps,
@@ -224,14 +322,36 @@ bool TCPConnectionEstablisher::Start(DoneCallback&& aCallback) {
 
   nsresult rv = CreateAndConfigureSocketTransport();
   if (NS_FAILED(rv)) {
-    Finish(Err(rv));
     return false;
   }
 
   return true;
 }
 
+void TCPConnectionEstablisher::ResetSpeculativeFlags() {
+  uint32_t flags = 0;
+  if (!mSocketTransport ||
+      NS_FAILED(mSocketTransport->GetConnectionFlags(&flags))) {
+    return;
+  }
+
+  flags &= ~nsISocketTransport::DISABLE_RFC1918;
+  flags &= ~nsISocketTransport::IS_SPECULATIVE_CONNECTION;
+  mSocketTransport->SetConnectionFlags(flags);
+}
+
 void TCPConnectionEstablisher::Close(nsresult aReason) {
+  LOG(("TCPConnectionEstablisher::Close %p aReason=%x", this,
+       static_cast<uint32_t>(aReason)));
+
+  mHandle = nullptr;
+  if (mResultConn) {
+    LOG(("TCPConnectionEstablisher::Close closing connection %p",
+         mResultConn.get()));
+    mResultConn->Close(aReason);
+    mResultConn = nullptr;
+  }
+
   if (mSocketTransport) {
     mSocketTransport->SetEventSink(nullptr, nullptr);
     mSocketTransport->SetSecurityCallbacks(nullptr);
@@ -250,8 +370,11 @@ void TCPConnectionEstablisher::Close(nsresult aReason) {
     mStreamIn = nullptr;
   }
 
+  // Release the DNS address record to avoid leaking SingleDNSAddrRecord
+  mAddrRecord = nullptr;
+
   mConnectedOK = false;
-  Finish(Err(aReason));
+  Finish(aReason);
 }
 
 nsresult TCPConnectionEstablisher::CreateAndConfigureSocketTransport() {
@@ -418,45 +541,20 @@ nsresult TCPConnectionEstablisher::CreateAndConfigureSocketTransport() {
   return rv;
 }
 
-void TCPConnectionEstablisher::Finish(
-    Result<RefPtr<HttpConnectionBase>, nsresult>&& aResult) {
-  if (mFinished) {
-    return;
-  }
-  mFinished = true;
-
-  // Release resources promptly.
+void TCPConnectionEstablisher::Finish(nsresult aResult) {
+  // Release TCP-specific resources first
   mStreamOut = nullptr;
   mStreamIn = nullptr;
   mSocketTransport = nullptr;
 
-  if (mCallback) {
-    auto cb = std::move(mCallback);
-    mCallback = nullptr;
-    mHandle->Reset();
-    cb(std::move(aResult));
-  }
-}
-
-NS_IMETHODIMP
-TCPConnectionEstablisher::GetInterface(const nsIID& iid, void** result) {
-  return NS_ERROR_NO_INTERFACE;
-}
-
-NS_IMETHODIMP
-TCPConnectionEstablisher::OnTransportStatus(nsITransport* trans,
-                                            nsresult status, int64_t progress,
-                                            int64_t progressMax) {
-  if (status == NS_NET_STATUS_CONNECTED_TO) {
-    mConnectedOK = true;
-  }
-
-  return NS_OK;
+  FinishInternal(aResult);
 }
 
 NS_IMETHODIMP
 TCPConnectionEstablisher::OnOutputStreamReady(nsIAsyncOutputStream* aOut) {
   MOZ_DIAGNOSTIC_ASSERT(mStreamOut == aOut, "stream mismatch");
+  LOG(("TCPConnectionEstablisher::OnOutputStreamReady %p mFinished=%d", this,
+       mFinished));
 
   if (mFinished) {
     return NS_OK;
@@ -464,7 +562,7 @@ TCPConnectionEstablisher::OnOutputStreamReady(nsIAsyncOutputStream* aOut) {
 
   // Create nsHttpConnection when the output stream is ready.
   RefPtr<nsHttpConnection> conn = new nsHttpConnection();
-
+  conn->SetTransactionCaps(mCaps);
   // TODO:
   // 1. BootstrapTimings
   // 2. SetTransactionCaps
@@ -479,48 +577,91 @@ TCPConnectionEstablisher::OnOutputStreamReady(nsIAsyncOutputStream* aOut) {
       mCaps & NS_HTTP_ALLOW_SPDY_WITHOUT_KEEPALIVE);
 
   if (NS_FAILED(rv)) {
-    Finish(Err(rv));
+    Finish(rv);
     return NS_OK;
   }
 
-  mHasConnected = true;
-
+  // Clear TCP-specific resources before activation
   mSocketTransport = nullptr;
   mStreamOut = nullptr;
   mStreamIn = nullptr;
 
-  RefPtr<HttpConnectionBase> resultConn = conn;
-  auto callback = [self = RefPtr{this}, resultConn](nsresult aResult) {
-    if (NS_FAILED(aResult)) {
-      self->Finish(Err(aResult));
-      return;
-    }
+  rv = ActivateConnectionWithTransaction(
+      conn, [self = RefPtr{this}](nsresult aResult) { self->Finish(aResult); });
 
-    NS_DispatchToCurrentThread(NS_NewRunnableFunction(
-        "TCPConnectionEstablisher::DoneCallback",
-        [self, resultConn]() { self->Finish(std::move(resultConn)); }));
-  };
+  return rv;
+}
 
-  RefPtr<SpeculativeTransaction> trans =
-      new SpeculativeTransaction(mConnInfo, this, mCaps, std::move(callback));
+// -------------------- UDPConnectionEstablisher --------------------
 
-  LOG((
-      "speculative transaction %p will be used to finish SSL handshake on conn "
-      "%p\n",
-      trans.get(), conn.get()));
+UDPConnectionEstablisher::UDPConnectionEstablisher(
+    nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey, uint32_t aCaps)
+    : ConnectionEstablisher(aConnInfo, aAddrKey, aCaps) {
+  LOG(("UDPConnectionEstablisher ctor:%p", this));
+}
 
-  mHandle = new ConnectionHandle(conn);
-  // give the transaction the indirect reference to the connection.
-  trans->SetConnection(mHandle);
+UDPConnectionEstablisher::~UDPConnectionEstablisher() {
+  LOG(("UDPConnectionEstablisher dtor:%p", this));
+}
 
-  rv = conn->Activate(trans, mCaps, 0);
+bool UDPConnectionEstablisher::Start(DoneCallback&& aCallback) {
+  LOG(("UDPConnectionEstablisher::Start %p", this));
+  mCallback = std::move(aCallback);
+  mAddrRecord = new SingleDNSAddrRecord(mAddrKey.mAddr, nullptr);
 
+  nsresult rv = CreateAndConfigureUDPConn();
   if (NS_FAILED(rv)) {
-    Finish(Err(rv));
-    return NS_OK;
+    Finish(rv);
+    return false;
   }
 
-  return NS_OK;
+  return true;
+}
+
+void UDPConnectionEstablisher::Close(nsresult aReason) {
+  LOG(("UDPConnectionEstablisher::Close %p aReason=%x", this,
+       static_cast<uint32_t>(aReason)));
+
+  mHandle = nullptr;
+  if (mResultConn) {
+    LOG(("UDPConnectionEstablisher::Close closing connection %p",
+         mResultConn.get()));
+    mResultConn->Close(aReason);
+    mResultConn = nullptr;
+  }
+
+  // Release the DNS address record to avoid leaking SingleDNSAddrRecord
+  mAddrRecord = nullptr;
+
+  Finish(aReason);
+}
+
+nsresult UDPConnectionEstablisher::CreateAndConfigureUDPConn() {
+  LOG(
+      ("UDPConnectionEstablisher::CreateAndConfigureUDPConn [this=%p "
+       "info=%s]",
+       this, mConnInfo->HashKey().get()));
+
+  RefPtr<HttpConnectionUDP> connUDP = new HttpConnectionUDP();
+  connUDP->SetTransactionCaps(mCaps);
+
+  nsresult rv = connUDP->Init(mConnInfo, mAddrRecord, NS_OK, this, mCaps);
+  if (NS_FAILED(rv)) {
+    return rv;
+  }
+
+  rv = ActivateConnectionWithTransaction(
+      connUDP,
+      [self = RefPtr{this}](nsresult aResult) { self->Finish(aResult); });
+
+  return rv;
+}
+
+void UDPConnectionEstablisher::Finish(nsresult aResult) {
+  LOG(("UDPConnectionEstablisher::Finish %p result=%x", this,
+       static_cast<uint32_t>(aResult)));
+
+  FinishInternal(aResult);
 }
 
 }  // namespace mozilla::net

@@ -91,7 +91,8 @@ void SpeculativeTransaction::Close(nsresult aReason) {
     aReason = NS_OK;
   }
   if (mCloseCallback) {
-    mCloseCallback(mTriedToWrite ? aReason : NS_ERROR_FAILURE);
+    mCloseCallback(mTriedToWrite || NS_FAILED(aReason) ? aReason
+                                                       : NS_ERROR_FAILURE);
     mCloseCallback = nullptr;
   }
 }

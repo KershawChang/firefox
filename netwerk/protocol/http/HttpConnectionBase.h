@@ -184,6 +184,9 @@ class HttpConnectionBase : public nsSupportsWeakReference {
   void SetOwner(ConnectionEntry* aEntry);
   ConnectionEntry* OwnerEntry() const;
 
+  void SetIsRacing(bool aValue) { mIsRacing = aValue; }
+  bool IsRacing() const { return mIsRacing; }
+
  protected:
   // The capabailities associated with the most recent transaction
   uint32_t mTransactionCaps{0};
@@ -216,6 +219,8 @@ class HttpConnectionBase : public nsSupportsWeakReference {
   ConnectionCloseReason mCloseReason = ConnectionCloseReason::UNSET;
 
   bool mAddressTypeReported{false};
+
+  bool mIsRacing{false};
 
   // Tunnel retated functions:
   enum HttpConnectionState {

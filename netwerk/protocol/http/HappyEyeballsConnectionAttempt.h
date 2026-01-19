@@ -36,33 +36,22 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   void Abandon() override;
   double Duration(TimeStamp epoch) override;
   void CloseTransports(nsresult error) override;
-
   void PrintDiagnostics(nsCString& log) override;
-
-  // Checks whether the transaction can be dispatched using this
-  // half-open's connection.  If this half-open is marked as urgent-start,
-  // it only accepts urgent start transactions.  Call only before Claim().
-  bool AcceptsTransaction(nsHttpTransaction* trans) override;
   bool Claim() override;
-  void Unclaim();
 
  private:
   ~HappyEyeballsConnectionAttempt();
 
-  nsresult ProcessDnsResponseA(const nsACString& aHost, const NetAddr* aAddresses,
-                               uint32_t aAddrLen);
+  nsresult ProcessDnsResponseA(const nsACString& aHost,
+                               const NetAddr* aAddresses, uint32_t aAddrLen);
   nsresult ProcessDnsResponseAAAA(const nsACString& aHost,
                                   const NetAddr* aAddresses, uint32_t aAddrLen);
-  nsresult ProcessDnsResponseHTTPS(const nsACString& aHost, uint16_t aPriority,
-                                   const nsACString& aTargetName,
-                                   const Protocol* aAlpnProtocols,
-                                   uint32_t aAlpnProtocolsLen,
-                                   const uint8_t* aEchConfig,
-                                   uint32_t aEchConfigLen,
-                                   const NetAddr* aIpv4Hints,
-                                   uint32_t aIpv4HintsLen,
-                                   const NetAddr* aIpv6Hints,
-                                   uint32_t aIpv6HintsLen);
+  nsresult ProcessDnsResponseHTTPS(
+      const nsACString& aHost, uint16_t aPriority,
+      const nsACString& aTargetName, const Protocol* aAlpnProtocols,
+      uint32_t aAlpnProtocolsLen, const uint8_t* aEchConfig,
+      uint32_t aEchConfigLen, const NetAddr* aIpv4Hints, uint32_t aIpv4HintsLen,
+      const NetAddr* aIpv6Hints, uint32_t aIpv6HintsLen);
   nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups
@@ -75,16 +64,22 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsresult OnHTTPSRecord(nsIDNSRecord* aRecord, nsresult status);
 
   // Connection Attempt
-  nsresult EstablishTCPConnection(NetAddr aAddr);
+  nsresult EstablishTCPConnection(NetAddr aAddr, uint16_t aPort);
   void HandleTCPConnectionResult(
       Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
       TCPConnectionEstablisher* aEstablisher);
   void CancelConnection(NetAddr aAddr);
+  nsresult EstablishUDPConnection(NetAddr aAddr, uint16_t aPort);
+  void HandleUDPConnectionResult(
+      Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
+      UDPConnectionEstablisher* aEstablisher);
 
   // Timer
   void SetupTimer(uint64_t aTimeout);
 
-  void Done();
+  void OnSucceeded();
+  void ProcessTCPConn(nsHttpConnection* aConn, ConnectionEntry* aEntry);
+  void ProcessUDPConn(HttpConnectionUDP* aConn, ConnectionEntry* aEntry);
 
   const HappyEyeballs* mHappyEyeballs = nullptr;
 
@@ -98,10 +93,10 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
 
   nsRefPtrHashtable<NetAddrKey, ConnectionEstablisher>
       mConnectionEstablisherTable;
+  RefPtr<HttpConnectionBase> mOutputConn;
 
   nsCOMPtr<nsITimer> mTimer;
-  // TODO: should use WeakPtr or RefPtr
-  ConnectionEntry* mEntry;
+  WeakPtr<ConnectionEntry> mEntry;
   bool mDone = false;
 };
 

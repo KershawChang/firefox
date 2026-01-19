@@ -45,6 +45,15 @@ nsresult HappyEyeballsConnectionAttemptPool::StartConnectionEstablishment(
   }
 
   InsertIntoConnectionAttempts(he);
+
+  if (pendingTransInfo) {
+    bool claimed = he->Claim();
+    if (!claimed) {
+      // We should always be able to claim this.
+      return NS_ERROR_UNEXPECTED;
+    }
+    pendingTransInfo->RememberConnectionAttempt(he);
+  }
   return NS_OK;
 }
 
@@ -73,18 +82,75 @@ void HappyEyeballsConnectionAttemptPool::RemoveConnectionAttempt(
   }
 }
 
-void HappyEyeballsConnectionAttemptPool::CloseAllConnectionAttempts() {}
+void HappyEyeballsConnectionAttemptPool::CloseAllConnectionAttempts() {
+  for (const auto& conn : mUnconnectedConns) {
+    conn->Abandon();
+    gHttpHandler->ConnMgr()->DecreaseNumDnsAndConnectSockets();
+  }
+  mUnconnectedConns.Clear();
+  (void)gHttpHandler->ConnMgr()->ProcessPendingQ(mConnInfo);
+}
 
 uint32_t HappyEyeballsConnectionAttemptPool::UnconnectedConnectionAttempts()
     const {
-  return 0;
+  uint32_t unconnectedConns = 0;
+  for (uint32_t i = 0; i < mUnconnectedConns.Length(); ++i) {
+    if (!mUnconnectedConns[i]->HasConnected()) {
+      ++unconnectedConns;
+    }
+  }
+  return unconnectedConns;
 }
 
 bool HappyEyeballsConnectionAttemptPool::FindConnToClaim(
     PendingTransactionInfo* pendingTransInfo) {
+  nsHttpTransaction* trans = pendingTransInfo->Transaction();
+  for (const auto& sock : mUnconnectedConns) {
+    if (sock->AcceptsTransaction(trans) && sock->Claim()) {
+      pendingTransInfo->RememberConnectionAttempt(sock);
+      // We've found a speculative connection or a connection that
+      // is free to be used in the DnsAndConnectSockets list.
+      // A free to be used connection is a connection that was
+      // open for a concrete transaction, but that trunsaction
+      // ended up using another connection.
+      LOG(
+          ("ConnectionAttemptPool::FindConnToClaim [ci = %s]\n"
+           "Found a speculative or a free-to-use DnsAndConnectSocket\n",
+           trans->ConnectionInfo()->HashKey().get()));
+
+      // return OK because we have essentially opened a new connection
+      // by converting a speculative DnsAndConnectSockets to general use
+      return true;
+    }
+  }
   return false;
 }
 
-void HappyEyeballsConnectionAttemptPool::TimeoutTick() {}
+void HappyEyeballsConnectionAttemptPool::TimeoutTick() {
+  if (mUnconnectedConns.IsEmpty()) {
+    return;
+  }
+
+  TimeStamp currentTime = TimeStamp::Now();
+  double maxConnectTime_ms = gHttpHandler->ConnectTimeout();
+  for (const auto& sock : Reversed(mUnconnectedConns)) {
+    double delta = sock->Duration(currentTime);
+    // If the socket has timed out, close it so the waiting
+    // transaction will get the proper signal.
+    if (delta > maxConnectTime_ms) {
+      LOG(("Force timeout of DnsAndConnectSocket to %p after %.2fms.\n",
+           sock.get(), delta));
+      sock->CloseTransports(NS_ERROR_NET_TIMEOUT);
+    }
+
+    // If this DnsAndConnectSocket hangs around for 5 seconds after we've
+    // closed() it then just abandon the socket.
+    if (delta > maxConnectTime_ms + 5000) {
+      LOG(("Abandon DnsAndConnectSocket to %p after %.2fms.\n", sock.get(),
+           delta));
+      RemoveConnectionAttempt(sock, true);
+    }
+  }
+}
 
 }  // namespace mozilla::net
