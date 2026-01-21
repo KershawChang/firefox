@@ -423,10 +423,25 @@ nsHttpConnectionInfo::CloneAndAdoptPortAndAlpn(
   // automatically, so we only need to set "h3".
   nsAutoCString alpnStr(aProtocol == ProtocolCombination::H3 ? "h3"_ns
                                                              : EmptyCString());
-
+  int32_t port = aPort != 0 ? aPort : mOriginPort;
   RefPtr<nsHttpConnectionInfo> clone = new nsHttpConnectionInfo(
-      mOrigin, mOriginPort, alpnStr, mUsername, mProxyInfo, mOriginAttributes,
+      mOrigin, port, alpnStr, mUsername, mProxyInfo, mOriginAttributes,
       mEndToEndSSL, aProtocol == ProtocolCombination::H3);
+
+  clone->SetAnonymous(GetAnonymous());
+  clone->SetPrivate(GetPrivate());
+  clone->SetInsecureScheme(GetInsecureScheme());
+  clone->SetNoSpdy(GetNoSpdy());
+  clone->SetBeConservative(GetBeConservative());
+  clone->SetAnonymousAllowClientCert(GetAnonymousAllowClientCert());
+  clone->SetFallbackConnection(GetFallbackConnection());
+  clone->SetTlsFlags(GetTlsFlags());
+  clone->SetIsTrrServiceChannel(GetIsTrrServiceChannel());
+  clone->SetTRRMode(GetTRRMode());
+  clone->SetIPv4Disabled(GetIPv4Disabled());
+  clone->SetIPv6Disabled(GetIPv6Disabled());
+
+  // IPHints and echConfig are handled in HappyEyeballsConnectionAttempt.
   return clone.forget();
 }
 

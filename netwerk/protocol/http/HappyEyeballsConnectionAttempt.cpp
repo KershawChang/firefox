@@ -411,9 +411,12 @@ void HappyEyeballsConnectionAttempt::HandleTCPConnectionResult(
 nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
     NetAddr aAddr, uint16_t aPort) {
   NetAddrKey key(aAddr);
-
-  RefPtr<TCPConnectionEstablisher> establisher = new TCPConnectionEstablisher(
-      mConnInfo, key, mCaps, mSpeculative, mAllow1918);
+  // TODO: we always use ProtocolCombination::H2OrH1 for now. Do we really want
+  // to race H2 and H1?
+  RefPtr<nsHttpConnectionInfo> info =
+      mConnInfo->CloneAndAdoptPortAndAlpn(aPort, ProtocolCombination::H2OrH1);
+  RefPtr<TCPConnectionEstablisher> establisher =
+      new TCPConnectionEstablisher(info, key, mCaps, mSpeculative, mAllow1918);
   auto callback = [self = RefPtr{this}, establisher](
                       Result<RefPtr<HttpConnectionBase>, nsresult> aResult) {
     self->HandleTCPConnectionResult(std::move(aResult), establisher);
@@ -431,8 +434,10 @@ nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
 nsresult HappyEyeballsConnectionAttempt::EstablishUDPConnection(
     NetAddr aAddr, uint16_t aPort) {
   NetAddrKey key(aAddr);
+  RefPtr<nsHttpConnectionInfo> info =
+      mConnInfo->CloneAndAdoptPortAndAlpn(aPort, ProtocolCombination::H3);
   RefPtr<UDPConnectionEstablisher> establisher =
-      new UDPConnectionEstablisher(mConnInfo, key, mCaps);
+      new UDPConnectionEstablisher(info, key, mCaps);
   auto callback = [self = RefPtr{this}, establisher](
                       Result<RefPtr<HttpConnectionBase>, nsresult> aResult) {
     self->HandleUDPConnectionResult(std::move(aResult), establisher);
