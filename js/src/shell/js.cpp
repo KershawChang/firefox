@@ -392,8 +392,7 @@ void LogPrintVA(const JS::OpaqueLogger logger, mozilla::LogLevel level,
 void LogPrintFmt(const JS::OpaqueLogger logger, mozilla::LogLevel level,
                  fmt::string_view fmt, fmt::format_args args) {
   ShellLogModule* mod = static_cast<ShellLogModule*>(logger);
-  fmt::print(stderr, FMT_STRING("[{}] {}\n"), mod->name,
-             fmt::vformat(fmt, args));
+  fmt::print(stderr, "[{}] {}\n", mod->name, fmt::vformat(fmt, args));
 }
 
 JS::LoggingInterface shellLoggingInterface = {GetLoggerByName, LogPrintVA,
@@ -2008,12 +2007,7 @@ static bool AddIntlExtras(JSContext* cx, unsigned argc, Value* vp) {
   }
   JS::RootedObject intl(cx, &args[0].toObject());
 
-  static const JSFunctionSpec funcs[] = {
-      JS_SELF_HOSTED_FN("getCalendarInfo", "Intl_getCalendarInfo", 1, 0),
-      JS_FS_END,
-  };
-
-  if (!JS_DefineFunctions(cx, intl, funcs)) {
+  if (!JS::AddMozGetCalendarInfo(cx, intl)) {
     return false;
   }
 

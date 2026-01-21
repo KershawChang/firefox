@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef AnchorPositioningUtils_h__
-#define AnchorPositioningUtils_h__
+#ifndef AnchorPositioningUtils_h_
+#define AnchorPositioningUtils_h_
 
 #include "WritingModes.h"
 #include "mozilla/Maybe.h"
@@ -354,10 +354,9 @@ struct AnchorPositioningUtils {
 
   // Trigger a layout for positioned items that are currently overflowing their
   // abs-cb and that have available fallbacks to try.
-  static bool TriggerLayoutOnOverflow(PresShell* aPresShell,
-                                      bool aEvaluateAllFallbacksIfNeeded);
+  static bool TriggerLayoutOnOverflow(PresShell*, bool aFirstIteration);
 };
 
 }  // namespace mozilla
 
-#endif  // AnchorPositioningUtils_h__
+#endif  // AnchorPositioningUtils_h_

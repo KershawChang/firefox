@@ -123,6 +123,11 @@ class ProviderContextualSearch extends ActionsProvider {
       return engine;
     }
 
+    // Don't match the default engine for non-query-matches.
+    let defaultEngine = queryContext.isPrivate
+      ? Services.search.defaultPrivateEngine
+      : Services.search.defaultEngine;
+
     let browser =
       lazy.BrowserWindowTracker.getTopWindow()?.gBrowser.selectedBrowser;
     if (!browser) {
@@ -160,12 +165,12 @@ class ProviderContextualSearch extends ActionsProvider {
       // Cache the result against this host so we do not need to rerun
       // the same query every keystroke.
       this.#hostEngines.set(host, hostEngine);
-      if (hostEngine) {
+      if (hostEngine && hostEngine.engine.name != defaultEngine.name) {
         return hostEngine;
       }
     } else if (host) {
       let cachedEngine = this.#hostEngines.get(host);
-      if (cachedEngine) {
+      if (cachedEngine && cachedEngine.engine.name != defaultEngine.name) {
         return cachedEngine;
       }
     }
@@ -173,6 +178,8 @@ class ProviderContextualSearch extends ActionsProvider {
     // Lastly match any openSearch
     if (browser) {
       let openSearchEngines = lazy.OpenSearchManager.getEngines(browser);
+      // We don't need to check if the engine has the same name as the
+      // default engine because OpenSearchManager already handles that.
       if (openSearchEngines.length) {
         return { type: OPEN_SEARCH_ENGINE, engine: openSearchEngines[0] };
       }
@@ -303,7 +310,7 @@ class ProviderContextualSearch extends ActionsProvider {
     this.#performSearch(
       engine,
       queryContext.searchString,
-      controller.input,
+      controller,
       type == INSTALLED_ENGINE
     );
 
@@ -320,19 +327,18 @@ class ProviderContextualSearch extends ActionsProvider {
     this.#visitedEngineDomains.clear();
   }
 
-  async #performSearch(engine, search, input, enterSearchMode) {
+  async #performSearch(engine, search, controller, enterSearchMode) {
     const [url] = UrlbarUtils.getSearchQueryUrl(engine, search);
     if (enterSearchMode) {
-      input.search(search, { searchEngine: engine });
+      controller.input.search(search, { searchEngine: engine });
     }
-    input.window.gBrowser.fixupAndLoadURIString(url, {
+    controller.browserWindow.gBrowser.fixupAndLoadURIString(url, {
       triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
     });
-    input.window.gBrowser.selectedBrowser.focus();
+    controller.browserWindow.gBrowser.selectedBrowser.focus();
   }
 
   #showInstallPrompt(controller, engineData) {
-    let win = controller.input.window;
     let buttons = [
       {
         "l10n-id": "install-search-engine-add",
@@ -346,7 +352,7 @@ class ProviderContextualSearch extends ActionsProvider {
       },
     ];
 
-    win.gNotificationBox.appendNotification(
+    controller.browserWindow.gNotificationBox.appendNotification(
       "install-search-engine",
       {
         label: {
@@ -354,7 +360,7 @@ class ProviderContextualSearch extends ActionsProvider {
           "l10n-args": { engineName: engineData.name },
         },
         image: "chrome://global/skin/icons/question-64.png",
-        priority: win.gNotificationBox.PRIORITY_INFO_LOW,
+        priority: controller.browserWindow.gNotificationBox.PRIORITY_INFO_LOW,
       },
       buttons
     );

@@ -276,7 +276,6 @@ module.exports = {
     "stylelint-plugin-mozilla/no-base-design-tokens": true,
     "stylelint-plugin-mozilla/use-design-tokens": true,
     "stylelint-plugin-mozilla/no-non-semantic-token-usage": true,
-    "stylelint-plugin-mozilla/use-size-tokens": true,
   },
 
   overrides: [
@@ -432,11 +431,15 @@ module.exports = {
         // into the HTML backup archive files that exist on a user's file system
         // and can be opened in any browser.
         "browser/components/backup/content/archive.css",
+        // Bug 2003877 - this is a centralization of a bunch of rules that had
+        // been spread across about:newtab and about:privatebrowsing. We'll
+        // fix these design tokens issues in a follow-up (presuming the
+        // replacement of the handoff bar doesn't land and remove this first).
+        "browser/components/search/content/contentSearchHandoffUI.css",
       ],
       rules: {
         "stylelint-plugin-mozilla/use-design-tokens": null,
         "stylelint-plugin-mozilla/no-non-semantic-token-usage": null,
-        "stylelint-plugin-mozilla/use-size-tokens": null,
       },
     },
     {
@@ -448,7 +451,6 @@ module.exports = {
       rules: {
         "stylelint-plugin-mozilla/use-design-tokens": true,
         "stylelint-plugin-mozilla/no-non-semantic-token-usage": true,
-        "stylelint-plugin-mozilla/use-size-tokens": true,
       },
     },
     {

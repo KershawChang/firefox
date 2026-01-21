@@ -202,9 +202,6 @@ var allowlist = [
 
   { file: "resource://gre/greprefs.js" },
 
-  // layout/mathml/nsMathMLChar.cpp
-  { file: "resource://gre/res/fonts/mathfontUnicode.properties" },
-
   // toolkit/mozapps/extensions/AddonContentPolicy.cpp
   { file: "resource://gre/localization/en-US/toolkit/global/cspErrors.ftl" },
 
@@ -331,29 +328,37 @@ var allowlist = [
   {
     file: "resource://app/modules/backup/CookiesBackupResource.sys.mjs",
   },
+
   // Bug 2000945 - Move query intent detection to AI-window r?mardak (backed out due to unused file)
   {
     file: "moz-src:///browser/components/aiwindow/models/IntentClassifier.sys.mjs",
   },
-  // Bug 2004888 - [FirstRun] Create Firstrun.html opening firstrun welcome screen
-  {
-    file: "chrome://browser/content/aiwindow/firstrun.html",
-  },
-  // Bug 2005768 - Insights scheduler for generation from history
-  {
-    file: "moz-src:///browser/components/aiwindow/models/InsightsHistoryScheduler.sys.mjs",
-  },
-  // Bug 2003303 - Implement Title Generation (backed out due to unused file)
-  {
-    file: "moz-src:///browser/components/aiwindow/models/TitleGeneration.sys.mjs",
-  },
-  // Bug 2006090 - Insight updation - Day 0 and incremental updates from Chat history
-  {
-    file: "moz-src:///browser/components/aiwindow/models/InsightsConversationScheduler.sys.mjs",
-  },
   // Bug 2006433 - Implement conversation starter/followup inference
   {
     file: "moz-src:///browser/components/aiwindow/models/ConversationSuggestions.sys.mjs",
+  },
+  // Bug 1996315: QR code generation modules
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeGenerator.sys.mjs",
+  },
+  {
+    file: "moz-src:///browser/components/qrcode/QRCodeWorker.sys.mjs",
+  },
+  // Bug D278371 - Smart Window website 'chip' component
+  {
+    file: "chrome://browser/content/aiwindow/components/ai-website-chip.mjs",
+  },
+  // Bug 2001456 - Toggle memories button for ai window
+  {
+    file: "chrome://browser/content/aiwindow/components/memories-icon-button.mjs",
+  },
+  // Bug 2010143: memory generation schedule updates
+  {
+    file: "moz-src:///browser/components/aiwindow/models/memories/MemoriesSchedulers.sys.mjs",
+  },
+  // Bug 2011266 - Integrate current tab website chip context in sidebar
+  {
+    file: "chrome://browser/content/aiwindow/components/website-chip-container.mjs",
   },
 ];
 

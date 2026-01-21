@@ -224,6 +224,7 @@ class SettingsFragment : PreferenceFragmentCompat() {
         if (showSearch) {
             showToolbarWithIconButton(
                 title = toolbarTitle,
+                contentDescription = getString(R.string.settings_search_button_content_description),
                 iconResId = R.drawable.ic_search,
                 onClick = {
                     SettingsSearch.opened.record()
@@ -363,6 +364,10 @@ class SettingsFragment : PreferenceFragmentCompat() {
                 SettingsFragmentDirections.actionSettingsFragmentToSavedLoginsAuthFragment()
             }
 
+            resources.getString(R.string.pref_key_email_masks) -> {
+                SettingsFragmentDirections.actionSettingsFragmentToEmailMasksSettingsFragment()
+            }
+
             resources.getString(R.string.pref_key_credit_cards) -> {
                 SettingsMetrics.autofill.record()
                 SettingsFragmentDirections.actionSettingsFragmentToAutofillSettingFragment()
@@ -479,6 +484,10 @@ class SettingsFragment : PreferenceFragmentCompat() {
                 SettingsFragmentDirections.actionSettingsFragmentToLinkSharingFragment()
             }
 
+            resources.getString(R.string.pref_key_remote_improvements) -> {
+                SettingsFragmentDirections.actionSettingsFragmentToRemoteImprovementsFragment()
+            }
+
             resources.getString(R.string.pref_key_open_links_in_apps) -> {
                 SettingsFragmentDirections.actionSettingsFragmentToOpenLinksInAppsFragment()
             }
@@ -585,6 +594,8 @@ class SettingsFragment : PreferenceFragmentCompat() {
             )?.isVisible = enableFirefoxLabs
             preferenceStartProfiler?.isVisible = showSecretDebugMenuThisSession &&
                 (components.core.engine.profiler?.isProfilerActive() != null)
+            findPreference<Preference>(getPreferenceKey(R.string.pref_key_email_masks))?.isVisible =
+                isEmailMaskFeatureEnabled
         }
         setupCookieBannerPreference(settings)
         setupInstallAddonFromFilePreference(settings)

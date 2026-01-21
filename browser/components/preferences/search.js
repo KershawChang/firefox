@@ -5,17 +5,17 @@
 /* import-globals-from extensionControlled.js */
 /* import-globals-from preferences.js */
 
-const lazy = {};
-
-ChromeUtils.defineESModuleGetters(lazy, {
+const lazy = XPCOMUtils.declareLazy({
   AddonSearchEngine:
     "moz-src:///toolkit/components/search/AddonSearchEngine.sys.mjs",
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
+  PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   QuickSuggest: "moz-src:///browser/components/urlbar/QuickSuggest.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   UrlbarPrefs: "moz-src:///browser/components/urlbar/UrlbarPrefs.sys.mjs",
+  UrlbarUtils: "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs",
   UserSearchEngine:
     "moz-src:///toolkit/components/search/UserSearchEngine.sys.mjs",
 });
@@ -563,6 +563,137 @@ Preferences.addSetting({
   id: "dismissedSuggestionsDescription",
 });
 
+Preferences.addSetting({
+  id: "addEngineButton",
+});
+
+Preferences.addSetting(
+  class extends Preferences.AsyncSetting {
+    static id = "engineList";
+
+    handleDeletionOptions(engine) {
+      let deletionOptions;
+      if (engine.isConfigEngine) {
+        let toggleId = `toggleEngine-${engine.id}`;
+        Preferences.addSetting({
+          id: toggleId,
+          get() {
+            return !engine.hidden;
+          },
+          onUserChange() {
+            engine.hidden = !engine.hidden;
+          },
+        });
+
+        deletionOptions = {
+          id: toggleId,
+          control: "moz-toggle",
+          slot: "actions",
+        };
+      } else {
+        let deletionId = `deleteEngine-${engine.id}`;
+        Preferences.addSetting({
+          id: deletionId,
+          async onUserClick() {
+            let [body, removeLabel] = await document.l10n.formatValues([
+              "remove-engine-confirmation",
+              "remove-engine-remove",
+            ]);
+
+            let button = Services.prompt.confirmExBC(
+              window.browsingContext,
+              Services.prompt.MODAL_TYPE_CONTENT,
+              null,
+              body,
+              (Services.prompt.BUTTON_TITLE_IS_STRING *
+                Services.prompt.BUTTON_POS_0) |
+                (Services.prompt.BUTTON_TITLE_CANCEL *
+                  Services.prompt.BUTTON_POS_1),
+              removeLabel,
+              null,
+              null,
+              null,
+              {}
+            );
+
+            if (button == 0) {
+              await Services.search.removeEngine(
+                engine,
+                Ci.nsISearchService.CHANGE_REASON_USER
+              );
+            }
+          },
+        });
+
+        deletionOptions = {
+          id: deletionId,
+          control: "moz-button",
+          controlAttrs: {
+            iconsrc: "chrome://global/skin/icons/delete.svg",
+          },
+          slot: "actions",
+        };
+      }
+
+      return deletionOptions;
+    }
+
+    async makeEngineList() {
+      let configs = [];
+      for (let engine of await Services.search.getEngines()) {
+        let setting = {
+          get id() {
+            return `engineList-${engine.id}`;
+          },
+        };
+        Preferences.addSetting(setting);
+
+        let config = {
+          id: setting.id,
+          control: "moz-box-item",
+          controlAttrs: {
+            label: engine.name,
+            description: engine.aliases.join(", "),
+            layout: "large-icon",
+            iconsrc: await engine.getIconURL(),
+          },
+        };
+
+        let editId = `editEngine-${engine.id}`;
+        Preferences.addSetting({
+          id: editId,
+          onUserClick() {
+            // TODO: call gSubDialog.open
+          },
+        });
+
+        config.items = [
+          {
+            id: editId,
+            control: "moz-button",
+            iconSrc: "chrome://global/skin/icons/edit-outline.svg",
+            slot: "actions",
+          },
+        ];
+
+        // Addon search engines do need an edit button to edit the alias names,
+        // but they should not have a toggle or a delete button.
+        if (!engine.loadPath.startsWith("[addon]")) {
+          config.items.push(this.handleDeletionOptions(engine));
+        }
+
+        configs.push(config);
+      }
+
+      return configs;
+    }
+
+    async getControlConfig() {
+      return { items: await this.makeEngineList() };
+    }
+  }
+);
+
 const ENGINE_FLAVOR = "text/x-moz-search-engine";
 const SEARCH_TYPE = "default_search";
 const SEARCH_KEY = "defaultSearch";
@@ -576,6 +707,7 @@ var gSearchPane = {
     initSettingGroup("defaultEngine");
     initSettingGroup("searchSuggestions");
     initSettingGroup("firefoxSuggest");
+    initSettingGroup("searchShortcuts");
     this._engineStore = new EngineStore();
     gEngineView = new EngineView(this._engineStore);
 
@@ -1013,8 +1145,8 @@ class EngineView {
     this._localShortcutL10nNames = new Map();
 
     let getIDs = (suffix = "") =>
-      UrlbarUtils.LOCAL_SEARCH_MODES.map(mode => {
-        let name = UrlbarUtils.getResultSourceName(mode.source);
+      lazy.UrlbarUtils.LOCAL_SEARCH_MODES.map(mode => {
+        let name = lazy.UrlbarUtils.getResultSourceName(mode.source);
         return { id: `urlbar-search-mode-${name}${suffix}` };
       });
 
@@ -1028,7 +1160,7 @@ class EngineView {
       let localizedNames = await document.l10n.formatValues(localizedIDs);
       let englishNames = await englishSearchStrings.formatValues(englishIDs);
 
-      UrlbarUtils.LOCAL_SEARCH_MODES.forEach(({ source }, index) => {
+      lazy.UrlbarUtils.LOCAL_SEARCH_MODES.forEach(({ source }, index) => {
         let localizedName = localizedNames[index];
         let englishName = englishNames[index];
 
@@ -1200,7 +1332,7 @@ class EngineView {
     if (index < engineCount) {
       return null;
     }
-    return UrlbarUtils.LOCAL_SEARCH_MODES[index - engineCount];
+    return lazy.UrlbarUtils.LOCAL_SEARCH_MODES[index - engineCount];
   }
 
   /**
@@ -1410,10 +1542,10 @@ class EngineView {
 
   // nsITreeView
   get rowCount() {
-    let localModes = UrlbarUtils.LOCAL_SEARCH_MODES;
+    let localModes = lazy.UrlbarUtils.LOCAL_SEARCH_MODES;
     if (!lazy.UrlbarPrefs.get("scotchBonnet.enableOverride")) {
       localModes = localModes.filter(
-        mode => mode.source != UrlbarUtils.RESULT_SOURCE.ACTIONS
+        mode => mode.source != lazy.UrlbarUtils.RESULT_SOURCE.ACTIONS
       );
     }
     return this._engineStore.engines.length + localModes.length;
@@ -1514,7 +1646,7 @@ class EngineView {
       // the icons in CSS.
       let shortcut = this._getLocalShortcut(index);
       if (shortcut) {
-        return UrlbarUtils.getResultSourceName(shortcut.source);
+        return lazy.UrlbarUtils.getResultSourceName(shortcut.source);
       }
     }
     return "";
@@ -1610,7 +1742,8 @@ class EngineView {
   async #changeKeyword(aEngine, aNewKeyword) {
     let keyword = aNewKeyword.trim();
     if (keyword) {
-      let isBookmarkDuplicate = !!(await PlacesUtils.keywords.fetch(keyword));
+      let isBookmarkDuplicate =
+        !!(await lazy.PlacesUtils.keywords.fetch(keyword));
 
       let dupEngine = await Services.search.getEngineByAlias(keyword);
       let isEngineDuplicate = dupEngine !== null && dupEngine.id != aEngine.id;

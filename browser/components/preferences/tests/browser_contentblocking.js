@@ -43,11 +43,6 @@ const BTP_PREF = "privacy.bounceTrackingProtection.mode";
 const LNA_PREF = "network.lna.blocking";
 const LNA_ETP_PREF = "network.lna.etp.enabled";
 
-const { EnterprisePolicyTesting, PoliciesPrefTracker } =
-  ChromeUtils.importESModule(
-    "resource://testing-common/EnterprisePolicyTesting.sys.mjs"
-  );
-
 requestLongerTimeout(3);
 
 // Enable LNA ETP integration for all tests so lna rules are processed
@@ -134,11 +129,7 @@ add_task(async function testContentBlockingMainCategory() {
   for (let selector of checkboxes) {
     let element = doc.querySelector(selector);
     ok(element, "checkbox " + selector + " exists");
-    is(
-      element.getAttribute("checked"),
-      "true",
-      "checkbox " + selector + " is checked"
-    );
+    ok(element.hasAttribute("checked"), "checkbox " + selector + " is checked");
   }
 
   // Ensure the dependent controls of the tracking protection subsection behave properly.
@@ -1074,15 +1065,11 @@ add_task(async function testContentBlockingCustomCategory() {
 function checkControlState(doc, controls, enabled) {
   for (let selector of controls) {
     for (let control of doc.querySelectorAll(selector)) {
-      if (enabled) {
-        ok(!control.hasAttribute("disabled"), `${selector} is enabled.`);
-      } else {
-        is(
-          control.getAttribute("disabled"),
-          "true",
-          `${selector} is disabled.`
-        );
-      }
+      is(
+        !control.hasAttribute("disabled"),
+        enabled,
+        `${selector} is ${enabled ? "enabled" : "disabled"}.`
+      );
     }
   }
 }
@@ -1128,9 +1115,8 @@ add_task(async function testDisableTPCheckBoxDisablesEmailTP() {
   );
 
   // Verify the initial check state of the tracking protection checkbox.
-  is(
-    tpCheckbox.getAttribute("checked"),
-    "true",
+  ok(
+    tpCheckbox.hasAttribute("checked"),
     "Tracking protection checkbox is checked initially"
   );
 
@@ -1243,7 +1229,7 @@ add_task(async function testFPPCustomCheckBox() {
 
   // Verify the default state of the FPP checkbox.
   ok(fppCheckbox, "FPP checkbox exists");
-  is(fppCheckbox.getAttribute("checked"), "true", "FPP checkbox is checked");
+  ok(fppCheckbox.hasAttribute("checked"), "FPP checkbox is checked");
 
   let menu = doc.querySelector("#fingerprintingProtectionMenu");
   let alwaysMenuItem = doc.querySelector(

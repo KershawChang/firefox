@@ -287,6 +287,12 @@ ALL_PROCESSES += [
 
     # ExplorerPatcher (bug 1798707)
     DllBlocklistEntry("explorerpatcher.amd64.dll", ALL_VERSIONS),
+
+    # Idera Delphi DLL (bug 1400169)
+    DllBlocklistEntry("evpComponentsXE.bpl", ALL_VERSIONS),
+
+    # Intuit DLLs (bug 1400169)
+    DllBlocklistEntry("FtuEngine.dll", ALL_VERSIONS),
 ]
 
 ALL_PROCESSES_TESTS += [
@@ -366,9 +372,6 @@ BROWSER_PROCESS += [
 
     # 123SyncCloud/123CloudStorage shell extension (bug 1996038)
     DllBlocklistEntry("MFCopyHook.dll", ALL_VERSIONS),
-
-    # SentinalOne product (bug 2005255)
-    DllBlocklistEntry("InProcessClient64.dll", ALL_VERSIONS),
 ]
 
 CHILD_PROCESSES += [

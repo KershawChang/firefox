@@ -879,7 +879,9 @@ class UrlbarInputTestUtils {
       let keywordEnabled = Services.prefs.getBoolPref("keyword.enabled");
 
       let expectedPlaceholder;
-      if (keywordEnabled && engineName) {
+      if (this.#urlbar(window).sapName == "searchbar") {
+        expectedPlaceholder = { id: "searchbar-input" };
+      } else if (keywordEnabled && engineName) {
         expectedPlaceholder = {
           id: "urlbar-placeholder-with-name",
           args: { name: engineName },
@@ -1262,11 +1264,24 @@ class UrlbarInputTestUtils {
    * @returns {UrlbarController} A new controller.
    */
   newMockController(options = {}) {
+    // Ensure a sapName is defined, as otherwise we'd not get the same
+    // ProvidersManager instance across tests.
+    if (options.input && !options.input.sapName) {
+      Object.defineProperty(options.input, "sapName", {
+        get() {
+          return "urlbar";
+        },
+        configurable: true,
+      });
+    }
     return new lazy.UrlbarController(
       Object.assign(
         {
           input: {
             isPrivate: false,
+            get sapName() {
+              return "urlbar";
+            },
             onFirstResult() {
               return false;
             },

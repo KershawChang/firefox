@@ -200,10 +200,20 @@ class MozbuildObject(ProcessExecutionMixin):
 
     def build_out_of_date(self, output, dep_file):
         if not os.path.isfile(output):
-            print(" Output reference file not found: %s" % output)
+            self.log(
+                logging.INFO,
+                "build_output",
+                {"output": output},
+                "Output reference file not found: {output}",
+            )
             return True
         if not os.path.isfile(dep_file):
-            print(" Dependency file not found: %s" % dep_file)
+            self.log(
+                logging.INFO,
+                "build_output",
+                {"dep_file": dep_file},
+                "Dependency file not found: {dep_file}",
+            )
             return True
 
         deps = []
@@ -216,11 +226,21 @@ class MozbuildObject(ProcessExecutionMixin):
                 dep_mtime = os.path.getmtime(f)
             except OSError as e:
                 if e.errno == errno.ENOENT:
-                    print(" Input not found: %s" % f)
+                    self.log(
+                        logging.INFO,
+                        "build_output",
+                        {"input": f},
+                        "Input not found: {input}",
+                    )
                     return True
                 raise
             if dep_mtime > mtime:
-                print(" %s is out of date with respect to %s" % (output, f))
+                self.log(
+                    logging.INFO,
+                    "build_output",
+                    {"output": output, "dep": f},
+                    "{output} is out of date with respect to {dep}",
+                )
                 return True
         return False
 
@@ -686,6 +706,7 @@ class MozbuildObject(ProcessExecutionMixin):
         log=True,
         srcdir=False,
         line_handler=None,
+        stderr_line_handler=None,
         append_env=None,
         explicit_env=None,
         ignore_errors=False,
@@ -750,10 +771,17 @@ class MozbuildObject(ProcessExecutionMixin):
                 mem_gb = psutil.virtual_memory().total / 1024**3
                 from_mem = round(mem_gb / job_size)
                 num_jobs = max(1, min(cpus, from_mem))
-                print(
-                    "  Parallelism determined by memory: using %d jobs for %d cores "
-                    "based on %.1f GiB RAM and estimated job size of %.1f GiB"
-                    % (num_jobs, cpus, mem_gb, job_size)
+                self.log(
+                    logging.INFO,
+                    "parallelism",
+                    {
+                        "jobs": num_jobs,
+                        "cores": cpus,
+                        "mem_gb": f"{mem_gb:.1f}",
+                        "job_size": f"{job_size:.1f}",
+                    },
+                    "Parallelism determined by memory: using {jobs} jobs for {cores} cores "
+                    "based on {mem_gb} GiB RAM and estimated job size of {job_size} GiB",
                 )
 
         args.append("-j%d" % num_jobs)
@@ -788,6 +816,7 @@ class MozbuildObject(ProcessExecutionMixin):
         params = {
             "args": args,
             "line_handler": line_handler,
+            "stderr_line_handler": stderr_line_handler,
             "append_env": append_env,
             "explicit_env": explicit_env,
             "log_level": logging.INFO,

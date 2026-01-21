@@ -864,6 +864,11 @@ partial namespace ChromeUtils {
 
   [Throws]
   Promise<imgIContainer> fetchDecodedImage(URI uri, MozChannel channel);
+
+  // Returns the stack trace captured from the most recent out-of-memory exception,
+  // or null if no OOM stack trace is available. The stack trace shows the JavaScript
+  // call stack at the time the out-of-memory condition occurred
+  DOMString getLastOOMStackTrace();
 };
 
 /*
@@ -941,6 +946,7 @@ enum WebIDLUtilityActorName {
   "jSOracle",
   "windowsUtils",
   "windowsFileDialog",
+  "pkcs11Module",
 };
 
 dictionary UtilityActorsDictionary {

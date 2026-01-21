@@ -535,50 +535,28 @@ impl<'source, 'temp, 'out> ExpressionContext<'source, 'temp, 'out> {
             .map_err(|e| Box::new(Error::ConstantEvaluatorError(e.into(), span)))
     }
 
-    fn const_eval_expr_to_u32(
+    fn get_const_val<T: TryFrom<crate::Literal, Error = proc::ConstValueError>>(
         &self,
         handle: Handle<ir::Expression>,
-    ) -> core::result::Result<u32, proc::U32EvalError> {
+    ) -> core::result::Result<T, proc::ConstValueError> {
         match self.expr_type {
             ExpressionContextType::Runtime(ref ctx) => {
                 if !ctx.local_expression_kind_tracker.is_const(handle) {
-                    return Err(proc::U32EvalError::NonConst);
+                    return Err(proc::ConstValueError::NonConst);
                 }
 
                 self.module
                     .to_ctx()
-                    .eval_expr_to_u32_from(handle, &ctx.function.expressions)
+                    .get_const_val_from(handle, &ctx.function.expressions)
             }
             ExpressionContextType::Constant(Some(ref ctx)) => {
                 assert!(ctx.local_expression_kind_tracker.is_const(handle));
                 self.module
                     .to_ctx()
-                    .eval_expr_to_u32_from(handle, &ctx.function.expressions)
+                    .get_const_val_from(handle, &ctx.function.expressions)
             }
-            ExpressionContextType::Constant(None) => self.module.to_ctx().eval_expr_to_u32(handle),
-            ExpressionContextType::Override => Err(proc::U32EvalError::NonConst),
-        }
-    }
-
-    fn const_eval_expr_to_bool(&self, handle: Handle<ir::Expression>) -> Option<bool> {
-        match self.expr_type {
-            ExpressionContextType::Runtime(ref ctx) => {
-                if !ctx.local_expression_kind_tracker.is_const(handle) {
-                    return None;
-                }
-
-                self.module
-                    .to_ctx()
-                    .eval_expr_to_bool_from(handle, &ctx.function.expressions)
-            }
-            ExpressionContextType::Constant(Some(ref ctx)) => {
-                assert!(ctx.local_expression_kind_tracker.is_const(handle));
-                self.module
-                    .to_ctx()
-                    .eval_expr_to_bool_from(handle, &ctx.function.expressions)
-            }
-            ExpressionContextType::Constant(None) => self.module.to_ctx().eval_expr_to_bool(handle),
-            ExpressionContextType::Override => None,
+            ExpressionContextType::Constant(None) => self.module.to_ctx().get_const_val(handle),
+            ExpressionContextType::Override => Err(proc::ConstValueError::NonConst),
         }
     }
 
@@ -716,12 +694,14 @@ impl<'source, 'temp, 'out> ExpressionContext<'source, 'temp, 'out> {
                 let index = self
                     .module
                     .to_ctx()
-                    .eval_expr_to_u32_from(expr, &rctx.function.expressions)
+                    .get_const_val_from::<u32, _>(expr, &rctx.function.expressions)
                     .map_err(|err| match err {
-                        proc::U32EvalError::NonConst => {
+                        proc::ConstValueError::NonConst | proc::ConstValueError::InvalidType => {
                             Error::ExpectedConstExprConcreteIntegerScalar(component_span)
                         }
-                        proc::U32EvalError::Negative => Error::ExpectedNonNegative(component_span),
+                        proc::ConstValueError::Negative => {
+                            Error::ExpectedNonNegative(component_span)
+                        }
                     })?;
                 ir::SwizzleComponent::XYZW
                     .get(index as usize)
@@ -1039,6 +1019,13 @@ impl<T> Typed<T> {
             Self::Reference(expr) => Typed::Reference(f(expr)?),
             Self::Plain(expr) => Typed::Plain(f(expr)?),
         })
+    }
+
+    fn ref_or<E>(self, error: E) -> core::result::Result<T, E> {
+        match self {
+            Self::Reference(v) => Ok(v),
+            Self::Plain(_) => Err(error),
+        }
     }
 }
 
@@ -1410,11 +1397,14 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                     match ctx
                         .module
                         .to_ctx()
-                        .eval_expr_to_bool_from(condition, &ctx.module.global_expressions)
+                        .get_const_val_from(condition, &ctx.module.global_expressions)
                     {
-                        Some(true) => Ok(()),
-                        Some(false) => Err(Error::ConstAssertFailed(span)),
-                        _ => Err(Error::NotBool(span)),
+                        Ok(true) => Ok(()),
+                        Ok(false) => Err(Error::ConstAssertFailed(span)),
+                        Err(proc::ConstValueError::NonConst | proc::ConstValueError::Negative) => {
+                            unreachable!()
+                        }
+                        Err(proc::ConstValueError::InvalidType) => Err(Error::NotBool(span)),
                     }?;
                 }
             }
@@ -1933,14 +1923,10 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                                     match ctx
                                         .module
                                         .to_ctx()
-                                        .eval_expr_to_literal_from(expr, &ctx.function.expressions)
+                                        .get_const_val_from(expr, &ctx.function.expressions)
                                     {
-                                        Some(ir::Literal::I32(value)) => {
-                                            ir::SwitchValue::I32(value)
-                                        }
-                                        Some(ir::Literal::U32(value)) => {
-                                            ir::SwitchValue::U32(value)
-                                        }
+                                        Ok(ir::Literal::I32(value)) => ir::SwitchValue::I32(value),
+                                        Ok(ir::Literal::U32(value)) => ir::SwitchValue::U32(value),
                                         _ => {
                                             return Err(Box::new(Error::InvalidSwitchCase {
                                                 span,
@@ -2021,6 +2007,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                     stmt.span,
                     function,
                     arguments,
+                    None,
                     &mut ctx.as_expression(block, &mut emitter),
                     true,
                 )?;
@@ -2106,12 +2093,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 let value_span = ctx.ast_expressions.get_span(value);
                 let target = self
                     .expression_for_reference(value, &mut ctx.as_expression(block, &mut emitter))?;
-                let target_handle = match target {
-                    Typed::Reference(handle) => handle,
-                    Typed::Plain(_) => {
-                        return Err(Box::new(Error::BadIncrDecrReferenceType(value_span)))
-                    }
-                };
+                let target_handle = target.ref_or(Error::BadIncrDecrReferenceType(value_span))?;
 
                 let mut ectx = ctx.as_expression(block, &mut emitter);
                 let scalar = match *resolve_inner!(ectx, target_handle) {
@@ -2165,11 +2147,14 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 match ctx
                     .module
                     .to_ctx()
-                    .eval_expr_to_bool_from(condition, &ctx.function.expressions)
+                    .get_const_val_from(condition, &ctx.function.expressions)
                 {
-                    Some(true) => Ok(()),
-                    Some(false) => Err(Error::ConstAssertFailed(span)),
-                    _ => Err(Error::NotBool(span)),
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(Error::ConstAssertFailed(span)),
+                    Err(proc::ConstValueError::NonConst | proc::ConstValueError::Negative) => {
+                        unreachable!()
+                    }
+                    Err(proc::ConstValueError::InvalidType) => Err(Error::NotBool(span)),
                 }?;
 
                 block.extend(emitter.finish(&ctx.function.expressions));
@@ -2267,7 +2252,8 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 let expr = match *global {
                     LoweredGlobalDecl::Var(handle) => {
                         let expr = ir::Expression::GlobalVariable(handle);
-                        match ctx.module.global_variables[handle].space {
+                        let v = &ctx.module.global_variables[handle];
+                        match v.space {
                             ir::AddressSpace::Handle => Typed::Plain(expr),
                             _ => Typed::Reference(expr),
                         }
@@ -2347,9 +2333,10 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
             ast::Expression::Call {
                 ref function,
                 ref arguments,
+                result_ty,
             } => {
                 let handle = self
-                    .call(span, function, arguments, ctx, false)?
+                    .call(span, function, arguments, result_ty, ctx, false)?
                     .ok_or(Error::FunctionReturnsVoid(function.span))?;
                 return Ok(Typed::Plain(handle));
             }
@@ -2365,7 +2352,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                     }
                 }
 
-                lowered_base.try_map(|base| match ctx.const_eval_expr_to_u32(index).ok() {
+                lowered_base.try_map(|base| match ctx.get_const_val(index).ok() {
                     Some(index) => Ok::<_, Box<Error>>(ir::Expression::AccessIndex { base, index }),
                     None => {
                         // When an abstract array value e is indexed by an expression
@@ -2560,7 +2547,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 result_var,
             )))
         } else {
-            let left_val = ctx.const_eval_expr_to_bool(left);
+            let left_val: Option<bool> = ctx.get_const_val(left).ok();
 
             if left_val.is_some_and(|left_val| {
                 op == crate::BinaryOperator::LogicalAnd && !left_val
@@ -2690,6 +2677,7 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         span: Span,
         function: &ast::Ident<'source>,
         arguments: &[Handle<ast::Expression<'source>>],
+        result_ty: Option<(Handle<ast::Type<'source>>, Span)>,
         ctx: &mut ExpressionContext<'source, '_, '_>,
         is_statement: bool,
     ) -> Result<'source, Option<Handle<ir::Expression>>> {
@@ -3053,9 +3041,33 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                                 ir::TypeInner::Pointer {
                                     base,
                                     space: ir::AddressSpace::WorkGroup,
-                                } => base,
-                                ref other => {
-                                    log::error!("Type {other:?} passed to workgroupUniformLoad");
+                                } => match ctx.module.types[base].inner {
+                                    // Match `Expression::Load` semantics:
+                                    // loading through a pointer to `atomic<T>` produces a `T`.
+                                    ir::TypeInner::Atomic(scalar) => ctx.module.types.insert(
+                                        ir::Type {
+                                            name: None,
+                                            inner: ir::TypeInner::Scalar(scalar),
+                                        },
+                                        span,
+                                    ),
+                                    _ => base,
+                                },
+                                ir::TypeInner::ValuePointer {
+                                    size,
+                                    scalar,
+                                    space: ir::AddressSpace::WorkGroup,
+                                } => ctx.module.types.insert(
+                                    ir::Type {
+                                        name: None,
+                                        inner: match size {
+                                            Some(size) => ir::TypeInner::Vector { size, scalar },
+                                            None => ir::TypeInner::Scalar(scalar),
+                                        },
+                                    },
+                                    span,
+                                ),
+                                _ => {
                                     let span = ctx.ast_expressions.get_span(expr);
                                     return Err(Box::new(Error::InvalidWorkGroupUniformLoad(span)));
                                 }
@@ -3361,7 +3373,6 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                             );
                             return Ok(Some(result));
                         }
-
                         "quadSwapY" => {
                             let mut args = ctx.prepare_args(arguments, 1, span);
 
@@ -3385,7 +3396,6 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                             );
                             return Ok(Some(result));
                         }
-
                         "quadSwapDiagonal" => {
                             let mut args = ctx.prepare_args(arguments, 1, span);
 
@@ -3408,6 +3418,101 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                                 span,
                             );
                             return Ok(Some(result));
+                        }
+                        "coopLoad" | "coopLoadT" => {
+                            let row_major = function.name.ends_with("T");
+                            let mut args = ctx.prepare_args(arguments, 1, span);
+                            let pointer = self.expression(args.next()?, ctx)?;
+                            let (matrix_ty, matrix_span) = result_ty.expect("generic argument");
+                            let (columns, rows, role) = match ctx.types[matrix_ty] {
+                                ast::Type::CooperativeMatrix {
+                                    columns,
+                                    rows,
+                                    role,
+                                    ..
+                                } => (columns, rows, role),
+                                _ => {
+                                    return Err(Box::new(Error::InvalidCooperativeLoadType(
+                                        matrix_span,
+                                    )))
+                                }
+                            };
+                            let stride = if args.total_args > 1 {
+                                self.expression(args.next()?, ctx)?
+                            } else {
+                                // Infer the stride from the matrix type
+                                let stride = if row_major {
+                                    columns as u32
+                                } else {
+                                    rows as u32
+                                };
+                                ctx.append_expression(
+                                    ir::Expression::Literal(ir::Literal::U32(stride)),
+                                    Span::UNDEFINED,
+                                )?
+                            };
+                            args.finish()?;
+
+                            crate::Expression::CooperativeLoad {
+                                columns,
+                                rows,
+                                role,
+                                data: crate::CooperativeData {
+                                    pointer,
+                                    stride,
+                                    row_major,
+                                },
+                            }
+                        }
+                        "coopStore" | "coopStoreT" => {
+                            let row_major = function.name.ends_with("T");
+
+                            let mut args = ctx.prepare_args(arguments, 2, span);
+                            let target = self.expression(args.next()?, ctx)?;
+                            let pointer = self.expression(args.next()?, ctx)?;
+                            let stride = if args.total_args > 2 {
+                                self.expression(args.next()?, ctx)?
+                            } else {
+                                // Infer the stride from the matrix type
+                                let stride = match *resolve_inner!(ctx, target) {
+                                    ir::TypeInner::CooperativeMatrix { columns, rows, .. } => {
+                                        if row_major {
+                                            columns as u32
+                                        } else {
+                                            rows as u32
+                                        }
+                                    }
+                                    _ => 0,
+                                };
+                                ctx.append_expression(
+                                    ir::Expression::Literal(ir::Literal::U32(stride)),
+                                    Span::UNDEFINED,
+                                )?
+                            };
+                            args.finish()?;
+
+                            let rctx = ctx.runtime_expression_ctx(span)?;
+                            rctx.block.push(
+                                crate::Statement::CooperativeStore {
+                                    target,
+                                    data: crate::CooperativeData {
+                                        pointer,
+                                        stride,
+                                        row_major,
+                                    },
+                                },
+                                span,
+                            );
+                            return Ok(None);
+                        }
+                        "coopMultiplyAdd" => {
+                            let mut args = ctx.prepare_args(arguments, 3, span);
+                            let a = self.expression(args.next()?, ctx)?;
+                            let b = self.expression(args.next()?, ctx)?;
+                            let c = self.expression(args.next()?, ctx)?;
+                            args.finish()?;
+
+                            ir::Expression::CooperativeMultiplyAdd { a, b, c }
                         }
                         _ => {
                             return Err(Box::new(Error::UnknownIdent(function.span, function.name)))
@@ -4102,10 +4207,12 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
         let value = ctx
             .module
             .to_ctx()
-            .eval_expr_to_u32(expr)
+            .get_const_val(expr)
             .map_err(|err| match err {
-                proc::U32EvalError::NonConst => Error::ExpectedConstExprConcreteIntegerScalar(span),
-                proc::U32EvalError::Negative => Error::ExpectedNonNegative(span),
+                proc::ConstValueError::NonConst | proc::ConstValueError::InvalidType => {
+                    Error::ExpectedConstExprConcreteIntegerScalar(span)
+                }
+                proc::ConstValueError::Negative => Error::ExpectedNonNegative(span),
             })?;
         Ok((value, span))
     }
@@ -4121,12 +4228,13 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                 let const_expr = self.expression(expr, &mut ctx.as_const());
                 match const_expr {
                     Ok(value) => {
-                        let len = ctx.const_eval_expr_to_u32(value).map_err(|err| {
+                        let len = ctx.get_const_val(value).map_err(|err| {
                             Box::new(match err {
-                                proc::U32EvalError::NonConst => {
+                                proc::ConstValueError::NonConst
+                                | proc::ConstValueError::InvalidType => {
                                     Error::ExpectedConstExprConcreteIntegerScalar(span)
                                 }
-                                proc::U32EvalError::Negative => {
+                                proc::ConstValueError::Negative => {
                                     Error::ExpectedPositiveArrayLength(span)
                                 }
                             })
@@ -4232,6 +4340,25 @@ impl<'source, 'temp> Lowerer<'source, 'temp> {
                         scalar,
                     },
                     _ => return Err(Box::new(Error::BadMatrixScalarKind(ty_span, scalar))),
+                }
+            }
+            ast::Type::CooperativeMatrix {
+                columns,
+                rows,
+                ty,
+                ty_span,
+                role,
+            } => {
+                let ty = self.resolve_ast_type(ty, ctx)?;
+                let scalar = match ctx.module.types[ty].inner {
+                    ir::TypeInner::Scalar(s) => s,
+                    _ => return Err(Box::new(Error::UnsupportedCooperativeScalar(ty_span))),
+                };
+                ir::TypeInner::CooperativeMatrix {
+                    columns,
+                    rows,
+                    scalar,
+                    role,
                 }
             }
             ast::Type::Atomic(scalar) => scalar.to_inner_atomic(),

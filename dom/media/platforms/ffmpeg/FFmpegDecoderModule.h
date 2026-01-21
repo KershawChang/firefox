@@ -4,8 +4,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#ifndef __FFmpegDecoderModule_h__
-#define __FFmpegDecoderModule_h__
+#ifndef FFmpegDecoderModule_h_
+#define FFmpegDecoderModule_h_
 
 #include "FFmpegAudioDecoder.h"
 #include "FFmpegLibWrapper.h"
@@ -36,7 +36,7 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
     return "FFmpeg(OS library)";
 #endif
   }
-  static void Init(FFmpegLibWrapper* aLib) {
+  static void Init(const FFmpegLibWrapper* aLib) {
 #if (defined(XP_WIN) || defined(MOZ_WIDGET_GTK) || \
      defined(MOZ_WIDGET_ANDROID)) &&               \
     defined(MOZ_USE_HWDECODE) && !defined(MOZ_FFVPX_AUDIOONLY)
@@ -144,13 +144,13 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
   }
 
   static already_AddRefed<PlatformDecoderModule> Create(
-      FFmpegLibWrapper* aLib) {
+      const FFmpegLibWrapper* aLib) {
     RefPtr<PlatformDecoderModule> pdm = new FFmpegDecoderModule(aLib);
 
     return pdm.forget();
   }
 
-  explicit FFmpegDecoderModule(FFmpegLibWrapper* aLib) : mLib(aLib) {}
+  explicit FFmpegDecoderModule(const FFmpegLibWrapper* aLib) : mLib(aLib) {}
   virtual ~FFmpegDecoderModule() = default;
 
   already_AddRefed<MediaDataDecoder> CreateVideoDecoder(
@@ -334,11 +334,11 @@ class FFmpegDecoderModule : public PlatformDecoderModule {
   }
 
  private:
-  FFmpegLibWrapper* mLib;
+  const FFmpegLibWrapper* mLib;
   MOZ_RUNINIT static inline StaticDataMutex<nsTArray<AVCodecID>>
       sSupportedHWCodecs{"sSupportedHWCodecs"};
 };
 
 }  // namespace mozilla
 
-#endif  // __FFmpegDecoderModule_h__
+#endif  // FFmpegDecoderModule_h_

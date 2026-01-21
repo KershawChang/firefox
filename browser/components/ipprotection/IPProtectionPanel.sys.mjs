@@ -8,13 +8,19 @@ ChromeUtils.defineESModuleGetters(lazy, {
   CustomizableUI:
     "moz-src:///browser/components/customizableui/CustomizableUI.sys.mjs",
   IPPEnrollAndEntitleManager:
-    "resource:///modules/ipprotection/IPPEnrollAndEntitleManager.sys.mjs",
-  IPPProxyManager: "resource:///modules/ipprotection/IPPProxyManager.sys.mjs",
-  IPPProxyStates: "resource:///modules/ipprotection/IPPProxyManager.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPPEnrollAndEntitleManager.sys.mjs",
+  IPPExceptionsManager:
+    "moz-src:///browser/components/ipprotection/IPPExceptionsManager.sys.mjs",
+  IPPProxyManager:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
+  IPPProxyStates:
+    "moz-src:///browser/components/ipprotection/IPPProxyManager.sys.mjs",
   IPProtectionService:
-    "resource:///modules/ipprotection/IPProtectionService.sys.mjs",
-  IPProtection: "resource:///modules/ipprotection/IPProtection.sys.mjs",
-  IPPSignInWatcher: "resource:///modules/ipprotection/IPPSignInWatcher.sys.mjs",
+    "moz-src:///browser/components/ipprotection/IPProtectionService.sys.mjs",
+  IPProtection:
+    "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
+  IPPSignInWatcher:
+    "moz-src:///browser/components/ipprotection/IPPSignInWatcher.sys.mjs",
 });
 
 import {
@@ -83,6 +89,8 @@ export class IPProtectionPanel {
    * Continuous onboarding message to display in-panel, empty string if none applicable
    * @property {boolean} paused
    * True if the VPN service has been paused due to bandwidth limits
+   * @property {object} siteData
+   * Data about the currently loaded site, including "isExclusion".
    */
 
   /**
@@ -91,6 +99,18 @@ export class IPProtectionPanel {
   state = {};
   panel = null;
   initiatedUpgrade = false;
+  #window = null;
+
+  /**
+   * Gets the gBrowser from the weak reference to the window.
+   *
+   * @returns {object|undefined}
+   *  The gBrowser object, or undefined if the window has been garbage collected.
+   */
+  get gBrowser() {
+    const win = this.#window.get();
+    return win?.gBrowser;
+  }
 
   /**
    * Check the state of the enclosing panel to see if
@@ -113,6 +133,8 @@ export class IPProtectionPanel {
    *   Window containing the panelView to manage.
    */
   constructor(window) {
+    this.#window = Cu.getWeakReference(window);
+
     this.handleEvent = this.#handleEvent.bind(this);
 
     this.state = {
@@ -129,13 +151,41 @@ export class IPProtectionPanel {
       onboardingMessage: "",
       bandwidthWarning: "",
       paused: false,
+      siteData: this.#getSiteData(),
     };
 
-    if (window) {
-      IPProtectionPanel.loadCustomElements(window);
+    // The progress listener to listen for page navigations.
+    // Used to update the siteData state property for site exclusions.
+    this.progressListener = {
+      onLocationChange: (
+        aBrowser,
+        aWebProgress,
+        _aRequest,
+        aLocationURI,
+        _aFlags
+      ) => {
+        if (!aWebProgress.isTopLevel) {
+          return;
+        }
+
+        // Only update if on the currently selected tab
+        if (aBrowser !== this.gBrowser?.selectedBrowser) {
+          return;
+        }
+
+        if (this.active && aLocationURI) {
+          this.#updateSiteData();
+        }
+      },
+    };
+
+    const win = this.#window.get();
+    if (win) {
+      IPProtectionPanel.loadCustomElements(win);
     }
 
     this.#addProxyListeners();
+    this.#addProgressListener();
   }
 
   /**
@@ -217,6 +267,8 @@ export class IPProtectionPanel {
       lazy.IPPEnrollAndEntitleManager.refetchEntitlement();
       this.initiatedUpgrade = false;
     }
+
+    this.#updateSiteData();
 
     if (this.panel) {
       this.updateState();
@@ -356,6 +408,7 @@ export class IPProtectionPanel {
   uninit() {
     this.destroy();
     this.#removeProxyListeners();
+    this.#removeProgressListener();
   }
 
   #addPanelListeners(doc) {
@@ -365,7 +418,11 @@ export class IPProtectionPanel {
     doc.addEventListener("IPProtection:UserEnable", this.handleEvent);
     doc.addEventListener("IPProtection:UserDisable", this.handleEvent);
     doc.addEventListener("IPProtection:SignIn", this.handleEvent);
-    doc.addEventListener("IPProtection:UserShowSiteSettings", this.handleEvent);
+    doc.addEventListener("IPProtection:UserEnableVPNForSite", this.handleEvent);
+    doc.addEventListener(
+      "IPProtection:UserDisableVPNForSite",
+      this.handleEvent
+    );
   }
 
   #removePanelListeners(doc) {
@@ -376,7 +433,11 @@ export class IPProtectionPanel {
     doc.removeEventListener("IPProtection:UserDisable", this.handleEvent);
     doc.removeEventListener("IPProtection:SignIn", this.handleEvent);
     doc.removeEventListener(
-      "IPProtection:UserShowSiteSettings",
+      "IPProtection:UserEnableVPNForSite",
+      this.handleEvent
+    );
+    doc.removeEventListener(
+      "IPProtection:UserDisableVPNForSite",
       this.handleEvent
     );
   }
@@ -394,6 +455,10 @@ export class IPProtectionPanel {
       "IPPEnrollAndEntitleManager:StateChanged",
       this.handleEvent
     );
+    lazy.IPPExceptionsManager.addEventListener(
+      "IPPExceptionsManager:ExclusionChanged",
+      this.handleEvent
+    );
   }
 
   #removeProxyListeners() {
@@ -409,6 +474,71 @@ export class IPProtectionPanel {
       "IPProtectionService:StateChanged",
       this.handleEvent
     );
+    lazy.IPPExceptionsManager.removeEventListener(
+      "IPPExceptionsManager:ExclusionChanged",
+      this.handleEvent
+    );
+  }
+
+  #addProgressListener() {
+    if (this.gBrowser) {
+      this.gBrowser.addTabsProgressListener(this.progressListener);
+    }
+  }
+
+  #removeProgressListener() {
+    if (this.gBrowser) {
+      this.gBrowser.removeTabsProgressListener(this.progressListener);
+    }
+  }
+
+  /**
+   * Gets siteData by reading the current content principal.
+   *
+   * @returns {object|null}
+   *  An object with data relevant to a site (eg. isExclusion),
+   *  or null otherwise if invalid.
+   *
+   * @see State.siteData
+   */
+
+  #getSiteData() {
+    const principal = this.gBrowser?.contentPrincipal;
+
+    if (!principal) {
+      return null;
+    }
+
+    const isExclusion = lazy.IPPExceptionsManager.hasExclusion(principal);
+    const isPrivileged = this._isPrivilegedPage(principal);
+
+    let siteData = !isPrivileged ? { isExclusion } : null;
+    return siteData;
+  }
+
+  /**
+   * Checks if the given principal represents a privileged page.
+   *
+   * @param {nsIPrincipal} principal
+   *  The principal to evaluate.
+   * @returns {boolean}
+   *  True if the page is privileged (about: pages or system principal).
+   */
+  _isPrivilegedPage(principal) {
+    // Ignore about: pages for automated tests, which load in about:blank pages by default.
+    // Do not register this method as private though so that we can stub it.
+    return (
+      (principal.schemeIs("about") || principal.isSystemPrincipal) &&
+      !Cu.isInAutomation
+    );
+  }
+
+  /**
+   * Updates the siteData state property.
+   */
+  #updateSiteData() {
+    const siteData = this.#getSiteData();
+    this.setState({ siteData });
   }
 
   #handleEvent(event) {
@@ -419,6 +549,16 @@ export class IPProtectionPanel {
     } else if (event.type == "IPProtection:UserEnable") {
       this.#startProxy();
       Services.prefs.setBoolPref("browser.ipProtection.userEnabled", true);
+      let userEnableCount = Services.prefs.getIntPref(
+        "browser.ipProtection.userEnableCount",
+        0
+      );
+      if (userEnableCount < 3) {
+        Services.prefs.setIntPref(
+          "browser.ipProtection.userEnableCount",
+          userEnableCount + 1
+        );
+      }
     } else if (event.type == "IPProtection:UserDisable") {
       this.#stopProxy();
       Services.prefs.setBoolPref("browser.ipProtection.userEnabled", false);
@@ -444,8 +584,18 @@ export class IPProtectionPanel {
         hasUpgraded: lazy.IPPEnrollAndEntitleManager.hasUpgraded,
         error: hasError ? ERRORS.GENERIC : "",
       });
-    } else if (event.type == "IPProtection:UserShowSiteSettings") {
-      // TODO: show subview for site settings (Bug 1997413)
+    } else if (event.type == "IPPExceptionsManager:ExclusionChanged") {
+      this.#updateSiteData();
+    } else if (event.type == "IPProtection:UserEnableVPNForSite") {
+      const win = event.target.ownerGlobal;
+      const principal = win?.gBrowser.contentPrincipal;
+
+      lazy.IPPExceptionsManager.setExclusion(principal, false);
+    } else if (event.type == "IPProtection:UserDisableVPNForSite") {
+      const win = event.target.ownerGlobal;
+      const principal = win?.gBrowser.contentPrincipal;
+
+      lazy.IPPExceptionsManager.setExclusion(principal, true);
     }
   }
 }

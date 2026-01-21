@@ -6,7 +6,8 @@
 
 // Wrap in a block to prevent leaking to window scope.
 {
-  ChromeUtils.defineESModuleGetters(this, {
+  const lazy = {};
+  ChromeUtils.defineESModuleGetters(lazy, {
     BrowserSearchTelemetry:
       "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
     BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
@@ -17,7 +18,9 @@
    * A richlistbox popup custom element for for a browser search autocomplete
    * widget.
    */
-  class MozSearchAutocompleteRichlistboxPopup extends MozElements.MozAutocompleteRichlistboxPopup {
+  class MozSearchAutocompleteRichlistboxPopup
+    extends MozElements.MozAutocompleteRichlistboxPopup
+  {
     constructor() {
       super();
 
@@ -101,7 +104,9 @@
       this._searchOneOffsContainer = this.querySelector(".search-one-offs");
       this._searchbarEngine = this.querySelector(".search-panel-header");
       this._searchbarEngineName = this.querySelector(".searchbar-engine-name");
-      this._oneOffButtons = new SearchOneOffs(this._searchOneOffsContainer);
+      this._oneOffButtons = new lazy.SearchOneOffs(
+        this._searchOneOffsContainer
+      );
       this._searchbar = document.getElementById("searchbar");
     }
 
@@ -191,7 +196,7 @@
       }
 
       // Check for middle-click or modified clicks on the search bar
-      BrowserSearchTelemetry.recordSearchSuggestionSelectionMethod(
+      lazy.BrowserSearchTelemetry.recordSearchSuggestionSelectionMethod(
         aEvent,
         this.selectedIndex
       );
@@ -200,7 +205,7 @@
       let search = this.input.controller.getValueAt(this.selectedIndex);
 
       // open the search results according to the clicking subtlety
-      let where = BrowserUtils.whereToOpenLink(aEvent, false, true);
+      let where = lazy.BrowserUtils.whereToOpenLink(aEvent, false, true);
       let params = {};
 
       // But open ctrl/cmd clicks on autocomplete items in a new background tab.

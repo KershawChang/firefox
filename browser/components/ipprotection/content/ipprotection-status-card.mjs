@@ -11,8 +11,6 @@ import {
 
 // eslint-disable-next-line import/no-unassigned-import
 import "chrome://global/content/elements/moz-toggle.mjs";
-// eslint-disable-next-line import/no-unassigned-import
-import "chrome://browser/content/ipprotection/ipprotection-site-settings-control.mjs";
 
 /**
  * Custom element that implements a status card for IP protection.
@@ -24,8 +22,8 @@ export default class IPProtectionStatusCard extends MozLitElement {
   static queries = {
     statusGroupEl: "#status-card",
     connectionToggleEl: "#connection-toggle",
+    connectionButtonEl: "#connection-toggle-button",
     locationEl: "#location-wrapper",
-    siteSettingsEl: "ipprotection-site-settings-control",
   };
 
   static shadowRootOptions = {
@@ -38,7 +36,6 @@ export default class IPProtectionStatusCard extends MozLitElement {
     canShowTime: { type: Boolean },
     enabledSince: { type: Object },
     location: { type: Object },
-    siteData: { type: Object },
     // Track toggle state separately so that we can tell when the toggle
     // is enabled because of the existing protection state or because of user action.
     _toggleEnabled: { type: Boolean, state: true },
@@ -52,18 +49,38 @@ export default class IPProtectionStatusCard extends MozLitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this.dispatchEvent(new CustomEvent("IPProtection:Init", { bubbles: true }));
     this.addEventListener("keydown", this.keyListener, { capture: true });
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
-
     this.removeEventListener("keydown", this.keyListener, { capture: true });
   }
 
   handleToggleConnect(event) {
     let isEnabled = event.target.pressed;
+
+    if (isEnabled) {
+      this.dispatchEvent(
+        new CustomEvent(this.TOGGLE_ON_EVENT, {
+          bubbles: true,
+          composed: true,
+        })
+      );
+    } else {
+      this.dispatchEvent(
+        new CustomEvent(this.TOGGLE_OFF_EVENT, {
+          bubbles: true,
+          composed: true,
+        })
+      );
+    }
+
+    this._toggleEnabled = isEnabled;
+  }
+
+  handleOnOffButtonClick() {
+    let isEnabled = !this._toggleEnabled;
 
     if (isEnabled) {
       this.dispatchEvent(
@@ -135,10 +152,10 @@ export default class IPProtectionStatusCard extends MozLitElement {
     const toggleL10nId = this.protectionEnabled
       ? "ipprotection-toggle-active"
       : "ipprotection-toggle-inactive";
-
-    const siteSettingsTemplate = this.protectionEnabled
-      ? this.siteSettingsTemplate()
-      : null;
+    const toggleButtonType = this.protectionEnabled ? "secondary" : "primary";
+    const toggleButtonL10nId = this.protectionEnabled
+      ? "ipprotection-button-turn-vpn-off"
+      : "ipprotection-button-turn-vpn-on";
 
     return html` <link
         rel="stylesheet"
@@ -162,29 +179,15 @@ export default class IPProtectionStatusCard extends MozLitElement {
             slot="actions"
           ></moz-toggle>
         </moz-box-item>
-        ${siteSettingsTemplate}
-      </moz-box-group>`;
-  }
-
-  siteSettingsTemplate() {
-    // TODO: Once we're able to detect the current site and its exception status, show
-    // ipprotection-site-settings-control (Bug 1997412).
-    if (!this.siteData?.siteName) {
-      return null;
-    }
-
-    return html` <moz-box-item
-      id="site-settings"
-      class=${classMap({
-        "is-enabled": this.protectionEnabled,
-      })}
-    >
-      <ipprotection-site-settings-control
-        .site=${this.siteData.siteName}
-        .exceptionEnabled=${this.siteData.isException}
-        class="slotted"
-      ></ipprotection-site-settings-control>
-    </moz-box-item>`;
+      </moz-box-group>
+      <moz-button
+        type=${toggleButtonType}
+        id="connection-toggle-button"
+        data-l10n-id=${toggleButtonL10nId}
+        @click=${this.handleOnOffButtonClick}
+        hidden
+      >
+      </moz-button>`;
   }
 
   cardDescriptionTemplate() {

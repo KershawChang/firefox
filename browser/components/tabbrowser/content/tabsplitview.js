@@ -115,6 +115,7 @@
               // tab is "1 of 2" in the split view, for example.
               tab.setAttribute("aria-posinset", index + 1);
               tab.setAttribute("aria-setsize", this.tabs.length);
+              tab.updateSplitViewAriaLabel(index);
             });
           } else {
             this.remove();
@@ -223,6 +224,17 @@
           panel.style.setProperty("width", width + "px");
         }
       }
+    }
+
+    /**
+     * Reset custom width on the right panel, allowing it to fill the rest of
+     * the available space.
+     */
+    resetRightPanelWidth() {
+      const panel = this.panels[1];
+      this.#storedPanelWidths.delete(panel);
+      panel.removeAttribute("width");
+      panel.style.removeProperty("width");
     }
 
     /**

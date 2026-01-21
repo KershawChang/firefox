@@ -272,7 +272,7 @@ pub struct Device {
     pub(crate) default_external_texture_params_buffer: ManuallyDrop<Box<dyn hal::DynBuffer>>,
     // needs to be dropped last
     #[cfg(feature = "trace")]
-    pub(crate) trace: Mutex<Option<trace::Trace>>,
+    pub(crate) trace: Mutex<Option<Box<dyn trace::Trace + Send + Sync + 'static>>>,
 }
 
 pub(crate) enum DeferredDestroy {
@@ -385,9 +385,41 @@ impl Device {
             }
         };
         #[cfg(feature = "trace")]
-        let trace_dir_name: Option<&std::path::PathBuf> = match &desc.trace {
+        let trace: Option<Box<dyn trace::Trace + Send + Sync + 'static>> = match &desc.trace {
             wgt::Trace::Off => None,
-            wgt::Trace::Directory(d) => Some(d),
+            wgt::Trace::Directory(dir) => match trace::DiskTrace::new(dir.clone()) {
+                Ok(mut trace) => {
+                    trace::Trace::add(
+                        &mut trace,
+                        trace::Action::Init {
+                            desc: wgt::DeviceDescriptor {
+                                trace: wgt::Trace::Off,
+                                ..desc.clone()
+                            },
+                            backend: adapter.backend(),
+                        },
+                    );
+                    Some(Box::new(trace))
+                }
+                Err(e) => {
+                    log::error!("Unable to start a trace in '{dir:?}': {e}");
+                    None
+                }
+            },
+            wgt::Trace::Memory => {
+                let mut trace = trace::MemoryTrace::new();
+                trace::Trace::add(
+                    &mut trace,
+                    trace::Action::Init {
+                        desc: wgt::DeviceDescriptor {
+                            trace: wgt::Trace::Off,
+                            ..desc.clone()
+                        },
+                        backend: adapter.backend(),
+                    },
+                );
+                Some(Box::new(trace))
+            }
             // The enum is non_exhaustive, so we must have a fallback arm (that should be
             // unreachable in practice).
             t => {
@@ -483,25 +515,7 @@ impl Device {
             tracker_indices: TrackerIndexAllocators::new(),
             bgl_pool: ResourcePool::new(),
             #[cfg(feature = "trace")]
-            trace: Mutex::new(
-                rank::DEVICE_TRACE,
-                trace_dir_name.and_then(|path| match trace::Trace::new(path.clone()) {
-                    Ok(mut trace) => {
-                        trace.add(trace::Action::Init {
-                            desc: wgt::DeviceDescriptor {
-                                trace: wgt::Trace::Off,
-                                ..desc.clone()
-                            },
-                            backend: adapter.backend(),
-                        });
-                        Some(trace)
-                    }
-                    Err(e) => {
-                        log::error!("Unable to start a trace in '{path:?}': {e}");
-                        None
-                    }
-                }),
-            ),
+            trace: Mutex::new(rank::DEVICE_TRACE, trace),
             alignments,
             limits: desc.required_limits.clone(),
             features: desc.required_features,
@@ -567,7 +581,7 @@ impl Device {
                     buffer: params_buffer,
                     usage: hal::StateTransition {
                         from: wgt::BufferUses::MAP_WRITE,
-                        to: wgt::BufferUses::COPY_SRC,
+                        to: wgt::BufferUses::COPY_DST,
                     },
                 }]);
             pending_writes.command_encoder.copy_buffer_to_buffer(
@@ -626,6 +640,14 @@ impl Device {
         } else {
             Err(DeviceError::Lost)
         }
+    }
+
+    /// Stop tracing and return the trace object.
+    ///
+    /// This is mostly useful for in-memory traces.
+    #[cfg(feature = "trace")]
+    pub fn take_trace(&self) -> Option<Box<dyn trace::Trace + Send + Sync + 'static>> {
+        self.trace.lock().take()
     }
 
     /// Checks that we are operating within the memory budget reported by the native APIs.
@@ -2578,8 +2600,10 @@ impl Device {
                 Bt::StorageTexture {
                     access,
                     view_dimension,
-                    format: _,
+                    format,
                 } => {
+                    use wgt::{StorageTextureAccess as Access, TextureFormatFeatureFlags as Flags};
+
                     match view_dimension {
                         TextureViewDimension::Cube | TextureViewDimension::CubeArray => {
                             return Err(binding_model::CreateBindGroupLayoutError::Entry {
@@ -2600,6 +2624,30 @@ impl Device {
                         }
                         _ => (),
                     }
+
+                    let format_features =
+                        self.describe_format_features(format).map_err(|error| {
+                            binding_model::CreateBindGroupLayoutError::Entry {
+                                binding: entry.binding,
+                                error: BindGroupLayoutEntryError::MissingFeatures(error),
+                            }
+                        })?;
+
+                    let required_feature_flag = match access {
+                        Access::WriteOnly => Flags::STORAGE_WRITE_ONLY,
+                        Access::ReadOnly => Flags::STORAGE_READ_ONLY,
+                        Access::ReadWrite => Flags::STORAGE_READ_WRITE,
+                        Access::Atomic => Flags::STORAGE_ATOMIC,
+                    };
+
+                    if !format_features.flags.contains(required_feature_flag) {
+                        return Err(binding_model::CreateBindGroupLayoutError::UnsupportedStorageTextureAccess {
+                            binding: entry.binding,
+                            access,
+                            format,
+                        });
+                    }
+
                     (
                         Some(
                             wgt::Features::TEXTURE_BINDING_ARRAY
@@ -3484,52 +3532,14 @@ impl Device {
                     });
                 }
 
-                let internal_use = match access {
-                    wgt::StorageTextureAccess::WriteOnly => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_WRITE_ONLY)
-                        {
-                            return Err(Error::StorageWriteNotSupported(view.desc.format));
-                        }
-                        wgt::TextureUses::STORAGE_WRITE_ONLY
-                    }
-                    wgt::StorageTextureAccess::ReadOnly => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_READ_ONLY)
-                        {
-                            return Err(Error::StorageReadNotSupported(view.desc.format));
-                        }
-                        wgt::TextureUses::STORAGE_READ_ONLY
-                    }
-                    wgt::StorageTextureAccess::ReadWrite => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_READ_WRITE)
-                        {
-                            return Err(Error::StorageReadWriteNotSupported(view.desc.format));
-                        }
-
-                        wgt::TextureUses::STORAGE_READ_WRITE
-                    }
-                    wgt::StorageTextureAccess::Atomic => {
-                        if !view
-                            .format_features
-                            .flags
-                            .contains(wgt::TextureFormatFeatureFlags::STORAGE_ATOMIC)
-                        {
-                            return Err(Error::StorageAtomicNotSupported(view.desc.format));
-                        }
-
-                        wgt::TextureUses::STORAGE_ATOMIC
-                    }
-                };
                 view.check_usage(wgt::TextureUsages::STORAGE_BINDING)?;
-                Ok(internal_use)
+
+                Ok(match access {
+                    wgt::StorageTextureAccess::ReadOnly => wgt::TextureUses::STORAGE_READ_ONLY,
+                    wgt::StorageTextureAccess::WriteOnly => wgt::TextureUses::STORAGE_WRITE_ONLY,
+                    wgt::StorageTextureAccess::ReadWrite => wgt::TextureUses::STORAGE_READ_WRITE,
+                    wgt::StorageTextureAccess::Atomic => wgt::TextureUses::STORAGE_ATOMIC,
+                })
             }
             wgt::BindingType::ExternalTexture => {
                 if view.desc.dimension != TextureViewDimension::D2 {
@@ -3743,10 +3753,10 @@ impl Device {
         let final_entry_point_name;
 
         {
-            let stage = wgt::ShaderStages::COMPUTE;
+            let stage = validation::ShaderStageForValidation::Compute;
 
             final_entry_point_name = shader_module.finalize_entry_point_name(
-                stage,
+                stage.to_naga(),
                 desc.stage.entry_point.as_ref().map(|ep| ep.as_ref()),
             )?;
 
@@ -3757,7 +3767,6 @@ impl Device {
                     &final_entry_point_name,
                     stage,
                     io,
-                    None,
                 )?;
             }
         }
@@ -4141,6 +4150,14 @@ impl Device {
         if let Some(ds) = depth_stencil_state {
             target_specified = true;
             let error = 'error: {
+                if !ds.format.is_depth_stencil_format() {
+                    // This error case is not redundant with the aspect check below when
+                    // neither depth nor stencil is enabled at all.
+                    break 'error Some(pipeline::DepthStencilStateError::FormatNotDepthOrStencil(
+                        ds.format,
+                    ));
+                }
+
                 let format_features = self.describe_format_features(ds.format)?;
                 if !format_features
                     .allowed_usages
@@ -4230,17 +4247,23 @@ impl Device {
             pipeline::RenderPipelineVertexProcessor::Vertex(ref vertex) => {
                 vertex_stage = {
                     let stage_desc = &vertex.stage;
-                    let stage = wgt::ShaderStages::VERTEX;
+                    let stage = validation::ShaderStageForValidation::Vertex {
+                        topology: desc.primitive.topology,
+                        compare_function: desc.depth_stencil.as_ref().map(|d| d.depth_compare),
+                    };
+                    let stage_bit = stage.to_wgt_bit();
 
                     let vertex_shader_module = &stage_desc.module;
                     vertex_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _vertex_entry_point_name = vertex_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4253,10 +4276,9 @@ impl Device {
                                 &_vertex_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: vertex_shader_module.raw(),
@@ -4272,16 +4294,19 @@ impl Device {
 
                 task_stage = if let Some(task) = task {
                     let stage_desc = &task.stage;
-                    let stage = wgt::ShaderStages::TASK;
+                    let stage = validation::ShaderStageForValidation::Task;
+                    let stage_bit = stage.to_wgt_bit();
                     let task_shader_module = &stage_desc.module;
                     task_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _task_entry_point_name = task_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4294,10 +4319,9 @@ impl Device {
                                 &_task_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: task_shader_module.raw(),
@@ -4311,16 +4335,19 @@ impl Device {
                 };
                 mesh_stage = {
                     let stage_desc = &mesh.stage;
-                    let stage = wgt::ShaderStages::MESH;
+                    let stage = validation::ShaderStageForValidation::Mesh;
+                    let stage_bit = stage.to_wgt_bit();
                     let mesh_shader_module = &stage_desc.module;
                     mesh_shader_module.same_device(self)?;
 
-                    let stage_err =
-                        |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                    let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                        stage: stage_bit,
+                        error,
+                    };
 
                     _mesh_entry_point_name = mesh_shader_module
                         .finalize_entry_point_name(
-                            stage,
+                            stage.to_naga(),
                             stage_desc.entry_point.as_ref().map(|ep| ep.as_ref()),
                         )
                         .map_err(stage_err)?;
@@ -4333,10 +4360,9 @@ impl Device {
                                 &_mesh_entry_point_name,
                                 stage,
                                 io,
-                                desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                             )
                             .map_err(stage_err)?;
-                        validated_stages |= stage;
+                        validated_stages |= stage_bit;
                     }
                     Some(hal::ProgrammableStage {
                         module: mesh_shader_module.raw(),
@@ -4352,16 +4378,20 @@ impl Device {
         let fragment_entry_point_name;
         let fragment_stage = match desc.fragment {
             Some(ref fragment_state) => {
-                let stage = wgt::ShaderStages::FRAGMENT;
+                let stage = validation::ShaderStageForValidation::Fragment;
+                let stage_bit = stage.to_wgt_bit();
 
                 let shader_module = &fragment_state.stage.module;
                 shader_module.same_device(self)?;
 
-                let stage_err = |error| pipeline::CreateRenderPipelineError::Stage { stage, error };
+                let stage_err = |error| pipeline::CreateRenderPipelineError::Stage {
+                    stage: stage_bit,
+                    error,
+                };
 
                 fragment_entry_point_name = shader_module
                     .finalize_entry_point_name(
-                        stage,
+                        stage.to_naga(),
                         fragment_state
                             .stage
                             .entry_point
@@ -4378,17 +4408,16 @@ impl Device {
                             &fragment_entry_point_name,
                             stage,
                             io,
-                            desc.depth_stencil.as_ref().map(|d| d.depth_compare),
                         )
                         .map_err(stage_err)?;
-                    validated_stages |= stage;
+                    validated_stages |= stage_bit;
                 }
 
                 if let Some(ref interface) = shader_module.interface {
                     shader_expects_dual_source_blending = interface
                         .fragment_uses_dual_source_blending(&fragment_entry_point_name)
                         .map_err(|error| pipeline::CreateRenderPipelineError::Stage {
-                            stage,
+                            stage: stage_bit,
                             error,
                         })?;
                 }

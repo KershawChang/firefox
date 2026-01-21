@@ -100,10 +100,17 @@ add_task(async function disabled_unified_button() {
 
   Assert.equal(
     BrowserTestUtils.isVisible(
-      gURLBar.querySelector(".searchmode-switcher-chicklet")
+      gURLBar.querySelector(".searchmode-switcher-title")
     ),
     false,
-    "Chicklet associated with Unified Search Button should not be visible."
+    "Title label associated with Unified Search Button should not be visible."
+  );
+  Assert.equal(
+    BrowserTestUtils.isVisible(
+      gURLBar.querySelector(".searchmode-switcher-close")
+    ),
+    false,
+    "Close button associated with Unified Search Button should not be visible."
   );
 
   await UrlbarTestUtils.exitSearchMode(window);
@@ -477,10 +484,9 @@ add_task(async function open_engine_page_directly() {
     }
 
     await popupHidden;
+    await UrlbarTestUtils.assertSearchMode(newWin, null);
     await pageLoaded;
     Assert.ok(true, "The popup was hidden and expected page was loaded");
-
-    await UrlbarTestUtils.assertSearchMode(newWin, null);
 
     // Cleanup.
     await PlacesUtils.history.clear();
@@ -884,8 +890,10 @@ add_task(async function test_search_mode_switcher_private_engine_icon() {
   await SpecialPowers.popPrefEnv();
 });
 
-add_task(async function open_with_option() {
-  info("Open the urlbar and searchmode switcher popup with arrow+option key");
+add_task(async function open_with_alt_option_with_open_view() {
+  info(
+    "Open the urlbar and searchmode switcher popup with Arrow Down + Alt/Option keys while the results view is open"
+  );
   await UrlbarTestUtils.promiseAutocompleteResultPopup({
     window,
     value: "",
@@ -896,6 +904,22 @@ add_task(async function open_with_option() {
     "shown"
   );
   EventUtils.synthesizeKey("KEY_ArrowDown", { altKey: true });
+  await promiseMenuOpen;
+
+  let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);
+  EventUtils.synthesizeKey("KEY_Escape");
+  await popupHidden;
+});
+
+add_task(async function open_with_alt_option_with_closed_view() {
+  info(
+    "Open the urlbar and searchmode switcher popup with Arrow Up + Alt/Option keys while the results view is closed"
+  );
+  let promiseMenuOpen = BrowserTestUtils.waitForPopupEvent(
+    UrlbarTestUtils.searchModeSwitcherPopup(window),
+    "shown"
+  );
+  EventUtils.synthesizeKey("KEY_ArrowUp", { altKey: true });
   await promiseMenuOpen;
 
   let popupHidden = UrlbarTestUtils.searchModeSwitcherPopupClosed(window);

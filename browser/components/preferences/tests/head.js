@@ -1,6 +1,15 @@
 /* Any copyright is dedicated to the Public Domain.
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
+/**
+ * @import { SettingControl } from "chrome://browser/content/preferences/widgets/setting-control.mjs"
+ */
+
+const { EnterprisePolicyTesting, PoliciesPrefTracker } =
+  ChromeUtils.importESModule(
+    "resource://testing-common/EnterprisePolicyTesting.sys.mjs"
+  );
+
 const { NimbusTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/NimbusTestUtils.sys.mjs"
 );
@@ -171,7 +180,19 @@ async function evaluateSearchResults(
     if (!includeExperiments && child.id?.startsWith("pane-experimental")) {
       continue;
     }
-    if (searchResults.includes(child.id)) {
+    if (child.localName == "setting-group") {
+      if (searchResults.includes(child.groupId)) {
+        is_element_visible(
+          child,
+          `${child.groupId} should be in search results`
+        );
+      } else {
+        is_element_hidden(
+          child,
+          `${child.groupId} should not be in search results`
+        );
+      }
+    } else if (searchResults.includes(child.id)) {
       is_element_visible(child, `${child.id} should be in search results`);
     } else if (child.id) {
       is_element_hidden(child, `${child.id} should not be in search results`);
@@ -773,14 +794,31 @@ async function waitForSettingControlChange(control) {
  * Wait for the current setting pane to change.
  *
  * @param {string} paneId
+ * @param {Window} [win] The window to check, defaults to current window.
  */
-async function waitForPaneChange(paneId) {
-  let doc = gBrowser.selectedBrowser.contentDocument;
-  let event = await BrowserTestUtils.waitForEvent(doc, "paneshown");
+async function waitForPaneChange(
+  paneId,
+  win = gBrowser.selectedBrowser.ownerGlobal
+) {
+  let event = await BrowserTestUtils.waitForEvent(win.document, "paneshown");
   let expectId = paneId.startsWith("pane")
     ? paneId
     : `pane${paneId[0].toUpperCase()}${paneId.substring(1)}`;
   is(event.detail.category, expectId, "Loaded the correct pane");
+}
+
+/**
+ * Get a reference to the setting-control for a specific setting ID.
+ *
+ * @param {string} settingId The setting ID
+ * @param {Window} [win] The window to check, defaults to current window.
+ * @returns {SettingControl}
+ */
+function getSettingControl(
+  settingId,
+  win = gBrowser.selectedBrowser.ownerGlobal
+) {
+  return win.document.getElementById(`setting-control-${settingId}`);
 }
 
 function getControl(doc, id) {
@@ -875,4 +913,57 @@ async function clickEtpBaselineCheckboxWithConfirm(
   );
 
   return checkbox;
+}
+
+// Ensure each test leaves the sidebar in its initial state when it completes
+const initialSidebarState = { ...SidebarController.getUIState(), command: "" };
+registerCleanupFunction(async function () {
+  const { ObjectUtils } = ChromeUtils.importESModule(
+    "resource://gre/modules/ObjectUtils.sys.mjs"
+  );
+  if (
+    !ObjectUtils.deepEqual(SidebarController.getUIState(), initialSidebarState)
+  ) {
+    info("Restoring to initial sidebar state");
+    await SidebarController.initializeUIState(initialSidebarState);
+  }
+});
+let { Region } = ChromeUtils.importESModule(
+  "resource://gre/modules/Region.sys.mjs"
+);
+
+const initialHomeRegion = Region._home;
+const initialCurrentRegion = Region._current;
+
+function setupRegions(home, current) {
+  Region._setHomeRegion(home || "");
+  Region._setCurrentRegion(current || "");
+}
+
+function setLocale(language) {
+  Services.locale.availableLocales = [language];
+  Services.locale.requestedLocales = [language];
+}
+
+async function clearPolicies() {
+  await EnterprisePolicyTesting.setupPolicyEngineWithJson("");
+}
+
+async function getPromoCards() {
+  await openPreferencesViaOpenPreferencesAPI("paneMoreFromMozilla", {
+    leaveOpen: true,
+  });
+
+  let doc = gBrowser.contentDocument;
+  let vpnPromoCard = doc.getElementById("mozilla-vpn");
+  let monitorPromoCard = doc.getElementById("mozilla-monitor");
+  let mobileCard = doc.getElementById("firefox-mobile");
+  let relayPromoCard = doc.getElementById("firefox-relay");
+
+  return {
+    vpnPromoCard,
+    monitorPromoCard,
+    mobileCard,
+    relayPromoCard,
+  };
 }

@@ -4,16 +4,23 @@
 
 import { html } from "chrome://global/content/vendor/lit.all.mjs";
 import { MozLitElement } from "chrome://global/content/lit-utils.mjs";
+import {
+  createParserState,
+  consumeStreamChunk,
+  flushTokenRemainder,
+} from "chrome://browser/content/aiwindow/modules/TokenStreamParser.mjs";
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   Chat: "moz-src:///browser/components/aiwindow/models/Chat.sys.mjs",
+  generateChatTitle:
+    "moz-src:///browser/components/aiwindow/models/TitleGeneration.sys.mjs",
   AIWindow:
     "moz-src:///browser/components/aiwindow/ui/modules/AIWindow.sys.mjs",
   ChatConversation:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatConversation.sys.mjs",
   MESSAGE_ROLE:
-    "moz-src:///browser/components/aiwindow/ui/modules//ChatEnums.sys.mjs",
+    "moz-src:///browser/components/aiwindow/ui/modules/ChatEnums.sys.mjs",
   AssistantRoleOpts:
     "moz-src:///browser/components/aiwindow/ui/modules/ChatMessage.sys.mjs",
   getRoleLabel:
@@ -27,16 +34,26 @@ ChromeUtils.defineLazyGetter(lazy, "log", function () {
   });
 });
 
+const FULLPAGE = "fullpage";
+const SIDEBAR = "sidebar";
+
 /**
  * A custom element for managing AI Window
  */
 export class AIWindow extends MozLitElement {
   static properties = {
     userPrompt: { type: String },
+    mode: { type: String }, // sidebar | fullpage
   };
 
   #browser;
   #conversation;
+
+  #detectModeFromContext() {
+    return window.browsingContext?.embedderElement?.id === "ai-window-browser"
+      ? SIDEBAR
+      : FULLPAGE;
+  }
 
   constructor() {
     super();
@@ -44,6 +61,7 @@ export class AIWindow extends MozLitElement {
     this.userPrompt = "";
     this.#browser = null;
     this.#conversation = new lazy.ChatConversation({});
+    this.mode = this.#detectModeFromContext();
   }
 
   connectedCallback() {
@@ -60,7 +78,7 @@ export class AIWindow extends MozLitElement {
     browser.setAttribute("maychangeremoteness", "true");
     browser.setAttribute("disableglobalhistory", "true");
     browser.setAttribute("src", "about:aichatcontent");
-    browser.setAttribute("transparent", true);
+    browser.setAttribute("transparent", "true");
 
     const container = this.renderRoot.querySelector("#browser-container");
     container.appendChild(browser);
@@ -82,6 +100,33 @@ export class AIWindow extends MozLitElement {
   }
 
   /**
+   * Generates and sets a title for the conversation if one doesn't exist.
+   *
+   * @private
+   */
+  async #addConversationTitle() {
+    if (this.#conversation.title) {
+      return;
+    }
+
+    const firstUserMessage = this.#conversation.messages.find(
+      m => m.role === lazy.MESSAGE_ROLE.USER
+    );
+
+    const title = await lazy.generateChatTitle(
+      firstUserMessage?.content?.body,
+      {
+        url: firstUserMessage?.pageUrl?.href || "",
+        title: this.#conversation.pageMeta?.title || "",
+        description: this.#conversation.pageMeta?.description || "",
+      }
+    );
+
+    this.#conversation.title = title;
+    this.#updateConversation();
+  }
+
+  /**
    * Fetches an AI response based on the current user prompt.
    * Validates the prompt, updates conversation state, streams the response,
    * and dispatches updates to the browser actor.
@@ -99,17 +144,21 @@ export class AIWindow extends MozLitElement {
     this.#dispatchMessageToChatContent({
       role: lazy.MESSAGE_ROLE.USER,
       content: {
-        body: this.userPrompt,
+        body: formattedPrompt,
       },
     });
 
     const nextTurnIndex = this.#conversation.currentTurnIndex() + 1;
     try {
+      const pageUrl = URL.fromURI(
+        window.browsingContext.topChromeWindow.gBrowser.currentURI
+      );
+
       const stream = lazy.Chat.fetchWithHistory(
-        await this.#conversation.generatePrompt(this.userPrompt)
+        await this.#conversation.generatePrompt(formattedPrompt, pageUrl)
       );
       this.#updateConversation();
-
+      this.#addConversationTitle();
       this.userPrompt = "";
 
       // @todo
@@ -122,13 +171,43 @@ export class AIWindow extends MozLitElement {
         assistantRoleOpts
       );
 
+      const parserState = createParserState();
+      const currentMessage = this.#conversation.messages
+        .filter(message => message.role === lazy.MESSAGE_ROLE.ASSISTANT)
+        .at(-1);
+
       for await (const chunk of stream) {
-        const currentMessage = this.#conversation.messages.at(-1);
-        currentMessage.content.body += chunk;
+        const { plainText, tokens } = consumeStreamChunk(chunk, parserState);
+
+        if (!currentMessage.tokens) {
+          currentMessage.tokens = {
+            search: [],
+            existing_memory: [],
+          };
+        }
+
+        if (plainText) {
+          currentMessage.content.body += plainText;
+        }
+
+        if (tokens?.length) {
+          tokens.forEach(token => {
+            currentMessage.tokens[token.key].push(token.value);
+          });
+        }
 
         this.#updateConversation();
         this.#dispatchMessageToChatContent(currentMessage);
+        this.requestUpdate?.();
+      }
 
+      // End of stream: if there was an unclosed §... treat as literal text
+      const remainder = flushTokenRemainder(parserState);
+
+      if (remainder) {
+        currentMessage.content.body += remainder;
+        this.#updateConversation();
+        this.#dispatchMessageToChatContent(currentMessage);
         this.requestUpdate?.();
       }
     } catch (e) {
@@ -175,12 +254,17 @@ export class AIWindow extends MozLitElement {
   #dispatchMessageToChatContent(message) {
     const actor = this.#getAIChatContentActor();
 
+    const newMessage = { ...message };
     if (typeof message.role !== "string") {
-      const roleLabel = lazy.getRoleLabel(message.role).toLowerCase();
-      message.role = roleLabel;
+      const roleLabel = lazy.getRoleLabel(newMessage.role).toLowerCase();
+      newMessage.role = roleLabel;
     }
 
-    return actor.dispatchMessageToChatContent(message);
+    if (!actor) {
+      return null;
+    }
+
+    return actor.dispatchMessageToChatContent(newMessage);
   }
 
   /**
@@ -191,7 +275,7 @@ export class AIWindow extends MozLitElement {
    * @private
    */
 
-  #handlePromptInput = async e => {
+  #handlePromptInput = e => {
     const value = e.target.value;
     this.userPrompt = value;
   };
@@ -221,6 +305,11 @@ export class AIWindow extends MozLitElement {
         <moz-button type="primary" size="small" @click=${this.#handleSubmit}>
           Submit mock prompt
         </moz-button>
+
+        <!-- TODO : Example of mode-based rendering -->
+        ${this.mode === FULLPAGE
+          ? html`<div>Fullpage Footer Content</div>`
+          : ""}
       </div>
     `;
   }

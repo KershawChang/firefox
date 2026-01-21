@@ -50,7 +50,8 @@ const { ENABLED_AUTOFILL_ADDRESSES_PREF, ENABLED_AUTOFILL_CREDITCARDS_PREF } =
 
 const FORM_AUTOFILL_CONFIG = {
   payments: {
-    l10nId: "autofill-payment-methods-header",
+    l10nId: "payments-group",
+    headingLevel: 2,
     items: [
       {
         id: "saveAndFillPayments",
@@ -78,7 +79,8 @@ const FORM_AUTOFILL_CONFIG = {
     ],
   },
   addresses: {
-    l10nId: "autofill-addresses-header",
+    l10nId: "addresses-group",
+    headingLevel: 2,
     items: [
       {
         id: "saveAndFillAddresses",
@@ -182,19 +184,10 @@ export class FormAutofillPreferences {
       },
     });
 
-    let paymentsGroup = document.querySelector(
-      "setting-group[groupid=payments]"
-    );
-    paymentsGroup.config = FORM_AUTOFILL_CONFIG.payments;
-    paymentsGroup.getSetting = win.Preferences.getSetting.bind(win.Preferences);
-
-    let addressesGroup = document.querySelector(
-      "setting-group[groupid=addresses]"
-    );
-    addressesGroup.config = FORM_AUTOFILL_CONFIG.addresses;
-    addressesGroup.getSetting = win.Preferences.getSetting.bind(
-      win.Preferences
-    );
+    win.SettingGroupManager.registerGroups(FORM_AUTOFILL_CONFIG);
+    win.initSettingGroup("payments");
+    win.initSettingGroup("addresses");
+    Services.obs.notifyObservers(win, "formautofill-preferences-initialized");
   }
 
   async initializePaymentsStorage() {
@@ -261,8 +254,7 @@ export class FormAutofillPreferences {
             id: "payment-item",
             control: "moz-box-item",
             l10nId: "payment-moz-box-item",
-            iconSrc:
-              "chrome://formautofill/content/icon-credit-card-generic.svg",
+            iconSrc: "chrome://browser/skin/payment-methods-16.svg",
             l10nArgs: {
               cardNumber: record["cc-number"].replace(/^(\*+)(\d+)$/, "$1 $2"),
               expDate: record["cc-exp"].replace(/^(\d{4})-\d{2}$/, "XX/$1"),
@@ -272,6 +264,7 @@ export class FormAutofillPreferences {
                 control: "moz-button",
                 iconSrc: "chrome://global/skin/icons/delete.svg",
                 type: "icon",
+                l10nId: "payments-delete-payment-button-label",
                 controlAttrs: {
                   slot: "actions",
                   action: "remove",
@@ -282,6 +275,7 @@ export class FormAutofillPreferences {
                 control: "moz-button",
                 iconSrc: "chrome://global/skin/icons/edit.svg",
                 type: "icon",
+                l10nId: "payments-edit-payment-button-label",
                 controlAttrs: {
                   slot: "actions",
                   action: "edit",
@@ -568,5 +562,15 @@ export class FormAutofillPreferences {
       noValidate: true,
       l10nStrings: lazy.ManageAddresses.getAddressL10nStrings(),
     });
+  }
+
+  static openPaymentPreference() {
+    const win = Services.wm.getMostRecentBrowserWindow();
+    win.openPreferences("privacy-payment-methods-autofill");
+  }
+
+  static openAddressPreference() {
+    const win = Services.wm.getMostRecentBrowserWindow();
+    win.openPreferences("privacy-address-autofill");
   }
 }
