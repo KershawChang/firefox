@@ -282,10 +282,19 @@ impl HappyEyeballs {
             }
             Some(happy_eyeballs::Output::AttemptConnection { endpoint }) => {
                 let addr_str = endpoint.address.ip().to_string();
+                let addr_len = addr_str.len() as u32;
                 data.extend_from_slice(addr_str.as_bytes());
+                let ech_config_len = if let Some(ref ech) = endpoint.ech_config {
+                    data.extend_from_slice(ech);
+                    ech.len() as u32
+                } else {
+                    0
+                };
                 *ret_event = Output::AttemptConnection {
                     protocol: endpoint.protocol.into(),
                     port: endpoint.address.port(),
+                    addr_len,
+                    ech_config_len,
                 };
             }
             Some(happy_eyeballs::Output::CancelConnection(addr)) => {
@@ -447,7 +456,7 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 pub enum Output {
     SendDnsQuery { record_type: DnsRecordType },
     Timer { duration_ms: u64 },
-    AttemptConnection { protocol: ProtocolCombination, port: u16 },
+    AttemptConnection { protocol: ProtocolCombination, port: u16, addr_len: u32, ech_config_len: u32 },
     CancelConnection { port: u16 },
     Succeeded,
     Failed,

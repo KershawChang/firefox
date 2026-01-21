@@ -179,25 +179,32 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
       }
 
       case HappyEyeballsEvent::Tag::AttemptConnection: {
-        LOG(("HappyEyeballsEvent::Tag::AttemptConnection protocol=%d port=%d",
-             event.attempt_connection.protocol, event.attempt_connection.port));
-        auto res = ToNetAddr(heData, event.attempt_connection.port);
+        LOG(("HappyEyeballsEvent::Tag::AttemptConnection protocol=%d port=%d "
+             "addr_len=%u ech_config_len=%u",
+             event.attempt_connection.protocol, event.attempt_connection.port,
+             event.attempt_connection.addr_len,
+             event.attempt_connection.ech_config_len));
+
+        nsTArray<uint8_t> addrData;
+        addrData.AppendElements(heData.Elements(),
+                                event.attempt_connection.addr_len);
+        auto res = ToNetAddr(addrData, event.attempt_connection.port);
         if (res.isErr()) {
           LOG(("Failed to convert to NetAddr"));
           // TODO: how to handle this error?
           return res.unwrapErr();
         }
 
-        LOG(("connect to:[%s]", res.unwrap().ToString().get()));
-        if (event.attempt_connection.protocol == ProtocolCombination::H2OrH1) {
-          EstablishTCPConnection(res.unwrap(), event.attempt_connection.port);
-        } else if (event.attempt_connection.protocol ==
-                   ProtocolCombination::H3) {
-          EstablishUDPConnection(res.unwrap(), event.attempt_connection.port);
-        } else {
-          MOZ_ASSERT_UNREACHABLE("unsupported protocol");
-          return NS_ERROR_UNEXPECTED;
+        nsTArray<uint8_t> echConfig;
+        if (event.attempt_connection.ech_config_len > 0) {
+          echConfig.AppendElements(
+              heData.Elements() + event.attempt_connection.addr_len,
+              event.attempt_connection.ech_config_len);
         }
+
+        LOG(("connect to:[%s] ech_config_len=%zu", res.unwrap().ToString().get(),
+             echConfig.Length()));
+        EstablishTCPConnection(res.unwrap());
         break;
       }
 
