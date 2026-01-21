@@ -204,7 +204,7 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
 
         LOG(("connect to:[%s] ech_config_len=%zu", res.unwrap().ToString().get(),
              echConfig.Length()));
-        EstablishTCPConnection(res.unwrap());
+        EstablishTCPConnection(res.unwrap(), event.attempt_connection.port);
         break;
       }
 
