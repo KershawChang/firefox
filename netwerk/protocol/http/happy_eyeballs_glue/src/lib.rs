@@ -208,6 +208,9 @@ impl HappyEyeballs {
             ipv6_hints: ipv6_vec,
         };
 
+        // TODO: Instead of providing them individually, a better approach would
+        // be providing all svcb records at once. Difficult to design a clean
+        // FFI for it. Ideas?
         let inner = happy_eyeballs::DnsResultInner::Https(Ok(vec![service_info]));
 
         let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
