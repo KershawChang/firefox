@@ -131,7 +131,7 @@ impl HappyEyeballs {
         let host = unsafe { (&*hostname).to_utf8().to_string() };
         let name = happy_eyeballs::TargetName::from(host.as_str());
 
-        let mut service_info_vec = Vec::new();
+        let mut parsed_infos = Vec::new();
 
         if service_infos_len > 0 {
             if service_infos.is_null() {
@@ -225,7 +225,7 @@ impl HappyEyeballs {
                     }
                 }
 
-                service_info_vec.push(happy_eyeballs::ServiceInfo {
+                parsed_infos.push(happy_eyeballs::ServiceInfo {
                     priority: svc_info.priority,
                     target_name: target,
                     alpn_protocols: alpn_set,
@@ -236,7 +236,7 @@ impl HappyEyeballs {
             }
         }
 
-        let inner = happy_eyeballs::DnsResultInner::Https(Ok(service_info_vec));
+        let inner = happy_eyeballs::DnsResultInner::Https(Ok(parsed_infos));
 
         let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
             target_name: name,
