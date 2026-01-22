@@ -1230,16 +1230,15 @@ bool nsHttpConnectionMgr::ProcessPendingQForEntry(nsHttpConnectionInfo* ci) {
 bool nsHttpConnectionMgr::AtActiveConnectionLimit(ConnectionEntry* ent,
                                                   uint32_t caps) {
   nsHttpConnectionInfo* ci = ent->mConnInfo;
-  uint32_t totalCount = ent->TotalActiveConnections();
-
-  if (ci->IsHttp3() || ci->IsHttp3ProxyConnection()) {
-    if (ci->GetWebTransport()) {
-      // TODO: implement this properly in bug 1815735.
-      return false;
-    }
-    return totalCount > 0;
+  if (ent->HasActiveH3Connection()) {
+    return true;
+  }
+  if (ci->GetWebTransport()) {
+    // TODO: implement this properly in bug 1815735.
+    return false;
   }
 
+  uint32_t totalCount = ent->TotalActiveConnections();
   uint32_t maxPersistConns = MaxPersistConnections(ent);
 
   LOG(

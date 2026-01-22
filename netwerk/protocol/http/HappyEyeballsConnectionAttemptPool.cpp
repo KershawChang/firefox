@@ -153,4 +153,12 @@ void HappyEyeballsConnectionAttemptPool::TimeoutTick() {
   }
 }
 
+uint32_t HappyEyeballsConnectionAttemptPool::UnconnectedUDPConnsLength() const {
+  uint32_t len = 0;
+  for (const auto& sock : mUnconnectedConns) {
+    len += sock->UnconnectedUDPConnsLength();
+  }
+  return len;
+}
+
 }  // namespace mozilla::net

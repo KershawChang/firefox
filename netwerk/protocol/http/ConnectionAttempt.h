@@ -37,6 +37,7 @@ class ConnectionAttempt : public nsSupportsWeakReference {
   virtual void CloseTransports(nsresult error) = 0;
   virtual void PrintDiagnostics(nsCString& log) = 0;
   virtual DnsAndConnectSocket* ToDnsAndConnectSocket() { return nullptr; }
+  virtual uint32_t UnconnectedUDPConnsLength() const { return 0; }
 
   bool IsSpeculative() { return mSpeculative; }
   bool Allow1918() { return mAllow1918; }

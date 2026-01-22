@@ -641,6 +641,17 @@ void HappyEyeballsConnectionAttempt::CloseTransports(nsresult error) {}
 
 void HappyEyeballsConnectionAttempt::PrintDiagnostics(nsCString& log) {}
 
+uint32_t HappyEyeballsConnectionAttempt::UnconnectedUDPConnsLength() const {
+  uint32_t len = 0;
+  for (auto iter = mConnectionEstablisherTable.ConstIter(); !iter.Done();
+       iter.Next()) {
+    if (iter.Data()->IsUDP()) {
+      len++;
+    }
+  }
+  return len;
+}
+
 bool HappyEyeballsConnectionAttempt::Claim() {
   if (mSpeculative) {
     mSpeculative = false;

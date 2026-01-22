@@ -38,6 +38,7 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   void CloseTransports(nsresult error) override;
   void PrintDiagnostics(nsCString& log) override;
   bool Claim() override;
+  uint32_t UnconnectedUDPConnsLength() const override;
 
  private:
   ~HappyEyeballsConnectionAttempt();

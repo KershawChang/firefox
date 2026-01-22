@@ -192,4 +192,12 @@ void ConnectionAttemptPool::GetConnectionData(HttpRetParams& data) {
   }
 }
 
+uint32_t ConnectionAttemptPool::UnconnectedUDPConnsLength() const {
+  if (!mConnInfo->IsHttp3()) {
+    return 0;
+  }
+
+  return mUnconnectedConns.Length();
+}
+
 }  // namespace mozilla::net

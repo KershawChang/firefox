@@ -53,6 +53,16 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
   mConnectionAttemptPool = new HappyEyeballsConnectionAttemptPool(mConnInfo);
 }
 
+bool ConnectionEntry::HasActiveH3Connection() {
+  for (const auto& conn : mActiveConns) {
+    if (conn->UsingHttp3()) {
+      return true;
+    }
+  }
+
+  return mConnectionAttemptPool->UnconnectedUDPConnsLength() > 0;
+}
+
 bool ConnectionEntry::AvailableForDispatchNow() {
   if (mIdleConns.Length() && mIdleConns[0]->CanReuse()) {
     return true;
@@ -93,12 +103,12 @@ void ConnectionEntry::DisallowHttp2() {
 }
 
 void ConnectionEntry::DontReuseHttp3Conn() {
-  MOZ_ASSERT(mConnInfo->IsHttp3());
-
   // If we have any spdy connections, we want to go ahead and close them when
   // they're done so we can free up some connections.
   for (uint32_t i = 0; i < mActiveConns.Length(); ++i) {
-    mActiveConns[i]->DontReuse();
+    if (mActiveConns[i]->UsingHttp3()) {
+      mActiveConns[i]->DontReuse();
+    }
   }
 
   // Can't coalesce if we're not using http3
@@ -205,7 +215,7 @@ bool ConnectionEntry::RestrictConnections() {
     // was found in the same state through a coalescing hash
     LOG(
         ("ConnectionEntry::RestrictConnections %p %s restricted due to "
-         "active >=h2\n",
+         "AvailableForDispatchNow()==true\n",
          this, mConnInfo->HashKey().get()));
     return true;
   }
@@ -487,11 +497,9 @@ static void CheckForTrafficForConns(nsTArray<RefPtr<ConnType>>& aConns,
 }
 
 void ConnectionEntry::VerifyTraffic() {
-  if (!mConnInfo->IsHttp3()) {
-    CheckForTrafficForConns(mPendingConns, true);
-    // Iterate the idle connections and unmark them for traffic checks.
-    CheckForTrafficForConns(mIdleConns, false);
-  }
+  CheckForTrafficForConns(mPendingConns, true);
+  // Iterate the idle connections and unmark them for traffic checks.
+  CheckForTrafficForConns(mIdleConns, false);
 
   uint32_t numConns = mActiveConns.Length();
   if (numConns) {
@@ -625,7 +633,8 @@ bool ConnectionEntry::MakeFirstActiveSpdyConnDontReuse() {
 
 // Return an active h2 or h3 connection
 // that can be directly activated or null.
-HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn() {
+HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn(bool aNoHttp2,
+                                                         bool aNoHttp3) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
 
   HttpConnectionBase* experienced = nullptr;
@@ -645,6 +654,19 @@ HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn() {
     }
   }
 
+  auto allowedToReturn = [](HttpConnectionBase* aConn, bool aNoHttp2,
+                            bool aNoHttp3) {
+    if (aConn->UsingHttp3() && aNoHttp3) {
+      return false;
+    }
+
+    if (aConn->UsingSpdy() && aNoHttp2) {
+      return false;
+    }
+
+    return true;
+  };
+
   // if that worked, cleanup anything else and exit
   if (experienced) {
     for (uint32_t index = 0; index < activeLen; ++index) {
@@ -660,6 +682,9 @@ HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn() {
          "found an active experienced connection %p in native connection "
          "entry\n",
          this, mConnInfo->HashKey().get(), experienced));
+    if (!allowedToReturn(experienced, aNoHttp2, aNoHttp3)) {
+      return nullptr;
+    }
     return experienced;
   }
 
@@ -669,6 +694,9 @@ HttpConnectionBase* ConnectionEntry::GetH2orH3ActiveConn() {
          "found an active but inexperienced connection %p in native connection "
          "entry\n",
          this, mConnInfo->HashKey().get(), noExperience));
+    if (!allowedToReturn(noExperience, aNoHttp2, aNoHttp3)) {
+      return nullptr;
+    }
     return noExperience;
   }
 
@@ -735,10 +763,6 @@ void ConnectionEntry::ClosePendingConnections() {
 
 void ConnectionEntry::PruneNoTraffic() {
   LOG(("  pruning no traffic [ci=%s]\n", mConnInfo->HashKey().get()));
-  if (mConnInfo->IsHttp3()) {
-    return;
-  }
-
   uint32_t numConns = mActiveConns.Length();
   if (numConns) {
     // Walk the list backwards to allow us to remove entries easily.
@@ -760,10 +784,6 @@ void ConnectionEntry::PruneNoTraffic() {
 
 uint32_t ConnectionEntry::TimeoutTick() {
   uint32_t timeoutTickNext = 3600;  // 1hr
-
-  if (mConnInfo->IsHttp3()) {
-    return timeoutTickNext;
-  }
 
   LOG(
       ("ConnectionEntry::TimeoutTick() this=%p host=%s "
@@ -837,22 +857,13 @@ HttpRetParams ConnectionEntry::GetConnectionData() {
     data.idle.AppendElement(info);
   }
   mConnectionAttemptPool->GetConnectionData(data);
-  if (mConnInfo->IsHttp3()) {
-    data.httpVersion = "HTTP/3"_ns;
-  } else if (mUsingSpdy) {
-    data.httpVersion = "HTTP/2"_ns;
-  } else {
-    data.httpVersion = "HTTP <= 1.1"_ns;
-  }
   data.ssl = mConnInfo->EndToEndSSL();
   return data;
 }
 
 Http3ConnectionStatsParams ConnectionEntry::GetHttp3ConnectionStatsData() {
   Http3ConnectionStatsParams data;
-  if (!mConnInfo->IsHttp3()) {
-    return data;
-  }
+
   data.host = mConnInfo->Origin();
   data.port = mConnInfo->OriginPort();
 
@@ -1010,6 +1021,9 @@ bool ConnectionEntry::AllowToRetryDifferentIPFamilyForHttp3(nsresult aError) {
       ("ConnectionEntry::AllowToRetryDifferentIPFamilyForHttp3 %p "
        "error=%" PRIx32,
        this, static_cast<uint32_t>(aError)));
+  if (mConnInfo->GetHappyEyeballsEnabled()) {
+    return false;
+  }
   if (!mConnInfo->IsHttp3() && !mConnInfo->IsHttp3ProxyConnection()) {
     MOZ_ASSERT(false, "Should not be called for non Http/3 connection");
     return false;

@@ -43,6 +43,8 @@ class ConnectionAttemptPool {
 
   virtual void GetConnectionData(HttpRetParams& data);
 
+  virtual uint32_t UnconnectedUDPConnsLength() const;
+
  protected:
   virtual ~ConnectionAttemptPool();
 

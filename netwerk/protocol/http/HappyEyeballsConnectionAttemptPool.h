@@ -28,6 +28,7 @@ class HappyEyeballsConnectionAttemptPool : public ConnectionAttemptPool {
   void TimeoutTick() override;
   void PrintDiagnostics(nsCString& log) override {}
   void GetConnectionData(HttpRetParams& data) override {}
+  uint32_t UnconnectedUDPConnsLength() const override;
 
  private:
   ~HappyEyeballsConnectionAttemptPool();

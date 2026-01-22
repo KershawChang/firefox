@@ -202,6 +202,8 @@ class ConnectionEntry : public SupportsWeakPtr {
   // active connections and unconnected half open connections.
   uint32_t TotalActiveConnections() const;
 
+  bool HasActiveH3Connection();
+
   bool RemoveTransFromPendingQ(nsHttpTransaction* aTrans);
 
   void MaybeUpdateEchConfig(nsHttpConnectionInfo* aConnInfo);

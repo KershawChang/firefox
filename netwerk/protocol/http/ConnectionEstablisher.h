@@ -36,6 +36,7 @@ class ConnectionEstablisher : public nsITransportEventSink,
   virtual void ResetSpeculativeFlags() = 0;
   const NetAddrKey& AddrKey() const { return mAddrKey; }
   void ClearResultConnection();
+  virtual bool IsUDP() const { return false; }
 
  protected:
   virtual ~ConnectionEstablisher();
@@ -107,6 +108,7 @@ class UDPConnectionEstablisher : public ConnectionEstablisher {
   bool Start(DoneCallback&& aCallback) override;
   void ResetSpeculativeFlags() override {}
   void Close(nsresult aReason) override;
+  bool IsUDP() const override { return true; }
 
  private:
   ~UDPConnectionEstablisher();
