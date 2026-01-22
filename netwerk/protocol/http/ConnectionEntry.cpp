@@ -13,13 +13,11 @@
 #define LOG_ENABLED() LOG5_ENABLED()
 
 #include "ConnectionEntry.h"
-#include "HappyEyeballsConnectionAttemptPool.h"
 #include "HttpConnectionUDP.h"
 #include "nsQueryObject.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "nsHttpHandler.h"
 #include "mozilla/net/neqo_glue_ffi_generated.h"
-#include "mozilla/net/happy_eyeballs_glue.h"
 
 namespace mozilla {
 namespace net {
@@ -33,10 +31,6 @@ ConnectionEntry::~ConnectionEntry() {
   MOZ_ASSERT(!PendingQueueLength());
   MOZ_ASSERT(!UrgentStartQueueLength());
   MOZ_ASSERT(!mDoNotDestroy);
-
-  if (mHappyEyeballs) {
-    happy_eyeballs_release(mHappyEyeballs);
-  }
 }
 
 ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
@@ -49,8 +43,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
       mDoNotDestroy(false) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
-  // mConnectionAttemptPool = new ConnectionAttemptPool(mConnInfo);
-  mConnectionAttemptPool = new HappyEyeballsConnectionAttemptPool(mConnInfo);
+  mConnectionAttemptPool = new ConnectionAttemptPool(mConnInfo);
 }
 
 bool ConnectionEntry::HasActiveH3Connection() {

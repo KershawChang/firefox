@@ -17,6 +17,8 @@ namespace mozilla {
 namespace net {
 
 class HappyEyeballs;
+class HttpConnectionUDP;
+class nsHttpConnection;
 
 class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                              public nsIDNSListener,
@@ -32,7 +34,7 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                  nsAHttpTransaction* trans, uint32_t caps,
                                  bool speculative, bool urgentStart);
 
-  nsresult Init(ConnectionEntry* ent);
+  nsresult Init(ConnectionEntry* ent) override;
   void Abandon() override;
   double Duration(TimeStamp epoch) override;
   void CloseTransports(nsresult error) override;

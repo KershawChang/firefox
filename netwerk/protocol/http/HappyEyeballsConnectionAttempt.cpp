@@ -329,16 +329,20 @@ nsresult HappyEyeballsConnectionAttempt::DNSLookup(
   nsresult rv = NS_OK;
   switch (aType) {
     case DnsRecordType::Https: {
-      nsCOMPtr<nsIDNSAdditionalInfo> info;
-      if (mConnInfo->OriginPort() != NS_HTTPS_DEFAULT_PORT) {
-        dns->NewAdditionalInfo(""_ns, mConnInfo->OriginPort(),
-                               getter_AddRefs(info));
+      if (mCaps & NS_HTTP_DISALLOW_HTTPS_RR) {
+        rv = NS_ERROR_NOT_AVAILABLE;
+      } else {
+        nsCOMPtr<nsIDNSAdditionalInfo> info;
+        if (mConnInfo->OriginPort() != NS_HTTPS_DEFAULT_PORT) {
+          dns->NewAdditionalInfo(""_ns, mConnInfo->OriginPort(),
+                                 getter_AddRefs(info));
+        }
+        rv = dns->AsyncResolveNative(
+            mHost, nsIDNSService::RESOLVE_TYPE_HTTPSSVC,
+            aFlags | nsIDNSService::RESOLVE_WANT_RECORD_ON_ERROR, info, this,
+            gSocketTransportService, mConnInfo->GetOriginAttributes(),
+            getter_AddRefs(mHTTPSRequest));
       }
-      rv = dns->AsyncResolveNative(
-          mHost, nsIDNSService::RESOLVE_TYPE_HTTPSSVC,
-          aFlags | nsIDNSService::RESOLVE_WANT_RECORD_ON_ERROR, info, this,
-          gSocketTransportService, mConnInfo->GetOriginAttributes(),
-          getter_AddRefs(mHTTPSRequest));
       break;
     }
     case DnsRecordType::Aaaa:

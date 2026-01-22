@@ -17,36 +17,35 @@ namespace net {
 
 class ConnectionEntry;
 
-class ConnectionAttemptPool {
+class ConnectionAttemptPool final {
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ConnectionAttemptPool)
 
   explicit ConnectionAttemptPool(nsHttpConnectionInfo* info);
 
-  virtual nsresult StartConnectionEstablishment(
+  nsresult StartConnectionEstablishment(
       ConnectionEntry* entry, nsAHttpTransaction* trans, uint32_t caps,
       bool speculative, bool urgentStart, bool allow1918,
       PendingTransactionInfo* pendingTransInfo);
-  virtual size_t Length() const { return mUnconnectedConns.Length(); }
-  virtual void RemoveConnectionAttempt(ConnectionAttempt* attempt,
-                                       bool abandon);
-  virtual void CloseAllConnectionAttempts();
+  size_t Length() const { return mUnconnectedConns.Length(); }
+  void RemoveConnectionAttempt(ConnectionAttempt* attempt, bool abandon);
+  void CloseAllConnectionAttempts();
   // calculate the number of half open sockets that have not had at least 1
   // connection complete
-  virtual uint32_t UnconnectedConnectionAttempts() const;
+  uint32_t UnconnectedConnectionAttempts() const;
 
-  virtual bool FindConnToClaim(PendingTransactionInfo* pendingTransInfo);
+  bool FindConnToClaim(PendingTransactionInfo* pendingTransInfo);
 
-  virtual void TimeoutTick();
+  void TimeoutTick();
 
-  virtual void PrintDiagnostics(nsCString& log);
+  void PrintDiagnostics(nsCString& log);
 
-  virtual void GetConnectionData(HttpRetParams& data);
+  void GetConnectionData(HttpRetParams& data);
 
-  virtual uint32_t UnconnectedUDPConnsLength() const;
+  uint32_t UnconnectedUDPConnsLength() const;
 
  protected:
-  virtual ~ConnectionAttemptPool();
+  ~ConnectionAttemptPool();
 
   void InsertIntoConnectionAttempts(ConnectionAttempt* sock);
 

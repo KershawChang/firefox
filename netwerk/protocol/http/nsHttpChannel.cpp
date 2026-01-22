@@ -7956,11 +7956,15 @@ nsresult nsHttpChannel::BeginConnect() {
   }
 
   auto canUseHappyEyeballs = [&]() {
-    if (mProxyInfo) {
+    if (!StaticPrefs::network_http_happy_eyeballs_enabled()) {
       return false;
     }
 
-    if (!httpsRRAllowed) {
+    if (LoadBeConservative() || (mCaps & NS_HTTP_BE_CONSERVATIVE)) {
+      return false;
+    }
+
+    if (mProxyInfo) {
       return false;
     }
 

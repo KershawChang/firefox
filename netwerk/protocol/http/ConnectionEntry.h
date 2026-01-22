@@ -245,9 +245,6 @@ class ConnectionEntry : public SupportsWeakPtr {
   nsCString mOriginFrameHashKey;
 
   bool mRetriedDifferentIPFamilyForHttp3 = false;
-
-  // Owned HappyEyeballs instance shared by sockets for this entry.
-  const HappyEyeballs* mHappyEyeballs = nullptr;
 };
 
 }  // namespace net

@@ -52,7 +52,7 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
   DnsAndConnectSocket(nsHttpConnectionInfo* ci, nsAHttpTransaction* trans,
                       uint32_t caps, bool speculative, bool urgentStart);
 
-  [[nodiscard]] nsresult Init(ConnectionEntry* ent);
+  nsresult Init(ConnectionEntry* ent) override;
   void Abandon() override;
   double Duration(TimeStamp epoch) override;
   void CloseTransports(nsresult error) override;
@@ -211,14 +211,12 @@ class DnsAndConnectSocket final : public ConnectionAttempt,
   nsresult SetupDnsFlags(ConnectionEntry* ent);
   nsresult SetupEvent(SetupEvents event);
 
-  RefPtr<nsAHttpTransaction> mTransaction;
   bool mDispatchedMTransaction = false;
 
   PrimaryTransportSetup mPrimaryTransport;
 
   bool mBackupConnStatsSet = false;
 
-  RefPtr<nsHttpConnectionInfo> mConnInfo;
   nsCOMPtr<nsITimer> mSynTimer;
   BackupTransportSetup mBackupTransport;
 

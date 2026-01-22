@@ -121,7 +121,6 @@ UNIFIED_SOURCES += [
     "EarlyHintRegistrar.cpp",
     "EarlyHintsService.cpp",
     "HappyEyeballsConnectionAttempt.cpp",
-    "HappyEyeballsConnectionAttemptPool.cpp",
     "Http2Compression.cpp",
     "Http2Session.cpp",
     "Http2Stream.cpp",

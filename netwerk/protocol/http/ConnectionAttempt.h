@@ -12,6 +12,7 @@
 namespace mozilla {
 namespace net {
 
+class ConnectionEntry;
 class DnsAndConnectSocket;
 class nsAHttpTransaction;
 class nsHttpConnectionInfo;
@@ -21,14 +22,11 @@ class ConnectionAttempt : public nsSupportsWeakReference {
  public:
   NS_DECL_THREADSAFE_ISUPPORTS
 
-  ConnectionAttempt(nsHttpConnectionInfo* ci, nsAHttpTransaction* trans,
-                    uint32_t caps, bool speculative, bool urgentStart)
-      : mConnInfo(ci),
-        mTransaction(trans),
-        mCaps(caps),
-        mSpeculative(speculative),
-        mUrgentStart(urgentStart) {}
+  explicit ConnectionAttempt(nsHttpConnectionInfo* ci,
+                             nsAHttpTransaction* trans, uint32_t caps,
+                             bool speculative, bool urgentStart);
 
+  virtual nsresult Init(ConnectionEntry* ent) = 0;
   virtual void Abandon() = 0;
   virtual double Duration(TimeStamp epoch) = 0;
   bool AcceptsTransaction(nsHttpTransaction* trans);
@@ -37,7 +35,7 @@ class ConnectionAttempt : public nsSupportsWeakReference {
   virtual void CloseTransports(nsresult error) = 0;
   virtual void PrintDiagnostics(nsCString& log) = 0;
   virtual DnsAndConnectSocket* ToDnsAndConnectSocket() { return nullptr; }
-  virtual uint32_t UnconnectedUDPConnsLength() const { return 0; }
+  virtual uint32_t UnconnectedUDPConnsLength() const;
 
   bool IsSpeculative() { return mSpeculative; }
   bool Allow1918() { return mAllow1918; }

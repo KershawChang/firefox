@@ -15,6 +15,7 @@
 #include "ConnectionAttemptPool.h"
 #include "ConnectionEntry.h"
 #include "DnsAndConnectSocket.h"
+#include "HappyEyeballsConnectionAttempt.h"
 #include "nsHttpHandler.h"
 
 namespace mozilla::net {
@@ -37,25 +38,35 @@ nsresult ConnectionAttemptPool::StartConnectionEstablishment(
   MOZ_ASSERT((speculative && !pendingTransInfo) ||
              (!speculative && pendingTransInfo));
 
-  RefPtr<DnsAndConnectSocket> sock =
-      new DnsAndConnectSocket(mConnInfo, trans, caps, speculative, urgentStart);
-
-  if (speculative) {
-    sock->SetAllow1918(allow1918);
+  RefPtr<ConnectionAttempt> connAttempt;
+  if (mConnInfo->GetHappyEyeballsEnabled()) {
+    connAttempt = new HappyEyeballsConnectionAttempt(mConnInfo, trans, caps,
+                                                     speculative, urgentStart);
+  } else {
+    connAttempt = new DnsAndConnectSocket(mConnInfo, trans, caps, speculative,
+                                          urgentStart);
   }
 
-  nsresult rv = sock->Init(entry);
+  if (speculative) {
+    connAttempt->SetAllow1918(allow1918);
+  }
+
+  nsresult rv = connAttempt->Init(entry);
   if (NS_FAILED(rv)) {
-    sock->Abandon();
+    connAttempt->Abandon();
     return rv;
   }
 
-  InsertIntoConnectionAttempts(sock);
+  InsertIntoConnectionAttempts(connAttempt);
 
-  if (pendingTransInfo && sock->Claim()) {
-    pendingTransInfo->RememberConnectionAttempt(sock);
+  if (pendingTransInfo) {
+    bool claimed = connAttempt->Claim();
+    if (!claimed) {
+      // We should always be able to claim this.
+      return NS_ERROR_UNEXPECTED;
+    }
+    pendingTransInfo->RememberConnectionAttempt(connAttempt);
   }
-
   return NS_OK;
 }
 
@@ -119,13 +130,7 @@ bool ConnectionAttemptPool::FindConnToClaim(
   nsHttpTransaction* trans = pendingTransInfo->Transaction();
   for (const auto& sock : mUnconnectedConns) {
     if (sock->AcceptsTransaction(trans) && sock->Claim()) {
-      // TODO: hack for now. Do we need remember ConnectionAttempt in
-      // pendingTransInfo?
-      DnsAndConnectSocket* dnsAndSock = sock->ToDnsAndConnectSocket();
-      if (!dnsAndSock) {
-        continue;
-      }
-      pendingTransInfo->RememberConnectionAttempt(dnsAndSock);
+      pendingTransInfo->RememberConnectionAttempt(sock);
       // We've found a speculative connection or a connection that
       // is free to be used in the DnsAndConnectSockets list.
       // A free to be used connection is a connection that was
@@ -133,7 +138,7 @@ bool ConnectionAttemptPool::FindConnToClaim(
       // ended up using another connection.
       LOG(
           ("ConnectionAttemptPool::FindConnToClaim [ci = %s]\n"
-           "Found a speculative or a free-to-use DnsAndConnectSocket\n",
+           "Found a speculative or a free-to-use ConnectionAttempt\n",
            trans->ConnectionInfo()->HashKey().get()));
 
       // return OK because we have essentially opened a new connection
@@ -193,11 +198,11 @@ void ConnectionAttemptPool::GetConnectionData(HttpRetParams& data) {
 }
 
 uint32_t ConnectionAttemptPool::UnconnectedUDPConnsLength() const {
-  if (!mConnInfo->IsHttp3()) {
-    return 0;
+  uint32_t len = 0;
+  for (const auto& sock : mUnconnectedConns) {
+    len += sock->UnconnectedUDPConnsLength();
   }
-
-  return mUnconnectedConns.Length();
+  return len;
 }
 
 }  // namespace mozilla::net

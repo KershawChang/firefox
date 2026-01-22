@@ -68,6 +68,9 @@ DnsAndConnectSocket::DnsAndConnectSocket(nsHttpConnectionInfo* ci,
                                          bool urgentStart)
     : ConnectionAttempt(ci, trans, caps, speculative, urgentStart) {
   MOZ_ASSERT(ci && trans, "constructor with null arguments");
+  LOG(("ci=%s", ci->HashKey().get()));
+  LOG(("mConnInfo=%p", mConnInfo.get()));
+  MOZ_ASSERT(mConnInfo);
   LOG(("Creating DnsAndConnectSocket [this=%p trans=%p ent=%s key=%s]\n", this,
        trans, mConnInfo->Origin(), mConnInfo->HashKey().get()));
 

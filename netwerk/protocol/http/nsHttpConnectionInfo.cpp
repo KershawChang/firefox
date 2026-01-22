@@ -357,8 +357,7 @@ already_AddRefed<nsHttpConnectionInfo> nsHttpConnectionInfo::Clone() const {
   clone->SetEchConfig(GetEchConfig());
   clone->SetWebTransportId(GetWebTransportId());
   clone->SetHappyEyeballsEnabled(GetHappyEyeballsEnabled());
-  LOG(("xxx hashkey=%s", HashKey().get()));
-  LOG(("xxx hashkey=%s", clone->HashKey().get()));
+
   MOZ_ASSERT(clone->Equals(this));
 
   return clone.forget();
