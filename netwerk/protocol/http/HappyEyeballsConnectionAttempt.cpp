@@ -110,17 +110,13 @@ nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA(
 }
 
 nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS(
-    const nsACString& aHost, uint16_t aPriority, const nsACString& aTargetName,
-    const Protocol* aAlpnProtocols, uint32_t aAlpnProtocolsLen,
-    const uint8_t* aEchConfig, uint32_t aEchConfigLen,
-    const NetAddr* aIpv4Hints, uint32_t aIpv4HintsLen,
-    const NetAddr* aIpv6Hints, uint32_t aIpv6HintsLen) {
+    const nsACString& aHost, const ServiceInfoFFI* aServiceInfos,
+    uint32_t aServiceInfosLen) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS %p", this));
 
   nsresult rv = happy_eyeballs_process_dns_response_https(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aPriority,
-      &aTargetName, aAlpnProtocols, aAlpnProtocolsLen, aEchConfig,
-      aEchConfigLen, aIpv4Hints, aIpv4HintsLen, aIpv6Hints, aIpv6HintsLen);
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aServiceInfos,
+      aServiceInfosLen);
   if (NS_FAILED(rv)) {
     LOG(("process_dns_response_https failed rv=%x", static_cast<uint32_t>(rv)));
   }
@@ -852,34 +848,45 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
        static_cast<uint32_t>(status)));
   nsCOMPtr<nsIDNSHTTPSSVCRecord> record = do_QueryInterface(aRecord);
   if (!record || NS_FAILED(status)) {
-    (void)ProcessDnsResponseHTTPS(mHost, 0, mHost, nullptr, 0, nullptr, 0,
-                                  nullptr, 0, nullptr, 0);
+    (void)ProcessDnsResponseHTTPS(mHost, nullptr, 0);
     return ProcessHappyEyeballsOutput();
   }
 
   nsTArray<RefPtr<nsISVCBRecord>> svcbRecords;
-  // TODO: Handle aNoHttp2, aNoHttp3, and aCname.
   (void)record->GetAllRecords(false, false, ""_ns, svcbRecords);
   if (svcbRecords.IsEmpty()) {
-    (void)ProcessDnsResponseHTTPS(mHost, 0, mHost, nullptr, 0, nullptr, 0,
-                                  nullptr, 0, nullptr, 0);
+    (void)ProcessDnsResponseHTTPS(mHost, nullptr, 0);
     return ProcessHappyEyeballsOutput();
   }
 
-  auto extraceSVCBData = [&](nsISVCBRecord* record) {
-    uint16_t priority = 0;
-    (void)record->GetPriority(&priority);
-    nsCString name;
-    (void)record->GetName(name);
+  struct ServiceInfoData {
+    nsCString targetName;
+    UniquePtr<Protocol[]> alpnArray;
+    uint32_t alpnLen;
+    nsCString echConfig;
+    UniquePtr<NetAddr[]> ipv4Array;
+    uint32_t ipv4Len;
+    UniquePtr<NetAddr[]> ipv6Array;
+    uint32_t ipv6Len;
+    uint16_t priority;
+  };
+
+  nsTArray<ServiceInfoData> serviceData;
+  nsTArray<ServiceInfoFFI> serviceInfos;
+
+  for (const auto& svcbRecord : svcbRecords) {
+    ServiceInfoData data;
+    (void)svcbRecord->GetPriority(&data.priority);
+    (void)svcbRecord->GetName(data.targetName);
 
     nsTArray<RefPtr<nsISVCParam>> values;
-    (void)record->GetValues(values);
+    (void)svcbRecord->GetValues(values);
 
     nsTArray<nsCString> alpn;
     uint16_t port = 0;
     nsTArray<RefPtr<nsINetAddr>> ipv4Hint;
     nsTArray<RefPtr<nsINetAddr>> ipv6Hint;
-    nsCString echConfigStr;
+
     for (const auto& value : values) {
       uint16_t type;
       (void)value->GetType(&type);
@@ -889,10 +896,8 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
           (void)alpnParam->GetAlpn(alpn);
           break;
         }
-        case SvcParamKeyNoDefaultAlpn: {
-          // TODO: we should handle this properly.
+        case SvcParamKeyNoDefaultAlpn:
           break;
-        }
         case SvcParamKeyPort: {
           nsCOMPtr<nsISVCParamPort> portParam = do_QueryInterface(value);
           (void)portParam->GetPort(&port);
@@ -911,7 +916,7 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
         case SvcParamKeyEchConfig: {
           nsCOMPtr<nsISVCParamEchConfig> echConfigParam =
               do_QueryInterface(value);
-          (void)echConfigParam->GetEchconfig(echConfigStr);
+          (void)echConfigParam->GetEchconfig(data.echConfig);
           break;
         }
         default:
@@ -919,20 +924,29 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
       }
     }
 
-    uint32_t alpnLen = 0;
-    UniquePtr<Protocol[]> alpnPtr = AlpnArrayToProtocols(alpn, alpnLen);
-    uint32_t ipv4Len = 0;
-    UniquePtr<NetAddr[]> ipv4HintPtr = ToNetAddrArray(ipv4Hint, ipv4Len);
-    uint32_t ipv6Len = 0;
-    UniquePtr<NetAddr[]> ipv6HintPtr = ToNetAddrArray(ipv6Hint, ipv6Len);
-    (void)ProcessDnsResponseHTTPS(
-        mHost, priority, name, alpnPtr.get(), alpnLen,
-        reinterpret_cast<const uint8_t*>(echConfigStr.BeginReading()),
-        echConfigStr.Length(), ipv4HintPtr.get(), ipv4Len, ipv6HintPtr.get(),
-        ipv6Len);
-  };
+    data.alpnArray = AlpnArrayToProtocols(alpn, data.alpnLen);
+    data.ipv4Array = ToNetAddrArray(ipv4Hint, data.ipv4Len);
+    data.ipv6Array = ToNetAddrArray(ipv6Hint, data.ipv6Len);
 
-  extraceSVCBData(svcbRecords[0]);
+    ServiceInfoFFI svcInfo;
+    svcInfo.priority = data.priority;
+    svcInfo.target_name = &data.targetName;
+    svcInfo.alpn_protocols = data.alpnArray.get();
+    svcInfo.alpn_protocols_len = data.alpnLen;
+    svcInfo.ech_config =
+        reinterpret_cast<const uint8_t*>(data.echConfig.BeginReading());
+    svcInfo.ech_config_len = data.echConfig.Length();
+    svcInfo.ipv4_hints = data.ipv4Array.get();
+    svcInfo.ipv4_hints_len = data.ipv4Len;
+    svcInfo.ipv6_hints = data.ipv6Array.get();
+    svcInfo.ipv6_hints_len = data.ipv6Len;
+
+    serviceData.AppendElement(std::move(data));
+    serviceInfos.AppendElement(svcInfo);
+  }
+
+  (void)ProcessDnsResponseHTTPS(mHost, serviceInfos.Elements(),
+                                serviceInfos.Length());
   return ProcessHappyEyeballsOutput();
 }
 
