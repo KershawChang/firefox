@@ -75,7 +75,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   void InsertIntoExtendedCONNECTConns(HttpConnectionBase* conn);
   void RemoveExtendedCONNECTConns(HttpConnectionBase* conn);
 
-  HttpConnectionBase* GetH2orH3ActiveConn();
+  HttpConnectionBase* GetH2orH3ActiveConn(bool aNoHttp2, bool aNoHttp3);
   // Find an H2 tunnel connection (nsHttpConnection with UsingSpdy()) in active
   // connections. This is used for WebSocket/WebTransport through H3 proxy.
   already_AddRefed<nsHttpConnection> GetH2TunnelActiveConn();
@@ -155,7 +155,6 @@ class ConnectionEntry : public SupportsWeakPtr {
 
   bool mDoNotDestroy : 1;
 
-  bool IsHttp3() const { return mConnInfo->IsHttp3(); }
   bool IsHttp3ProxyConnection() const {
     return mConnInfo->IsHttp3ProxyConnection();
   }
@@ -245,8 +244,8 @@ class ConnectionEntry : public SupportsWeakPtr {
 
   bool mRetriedDifferentIPFamilyForHttp3 = false;
 
-    // Owned HappyEyeballs instance shared by sockets for this entry.
-    const HappyEyeballs* mHappyEyeballs = nullptr;
+  // Owned HappyEyeballs instance shared by sockets for this entry.
+  const HappyEyeballs* mHappyEyeballs = nullptr;
 };
 
 }  // namespace net

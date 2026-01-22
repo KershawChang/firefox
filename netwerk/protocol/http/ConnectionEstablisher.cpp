@@ -231,16 +231,16 @@ nsresult ConnectionEstablisher::ActivateConnectionWithTransaction(
 
   auto callback = [self = RefPtr{this},
                    onActivated = std::move(aOnActivated)](nsresult aResult) {
-    if (NS_FAILED(aResult)) {
-      self->Finish(aResult);
-      return;
-    }
+    NS_DispatchToCurrentThread(NS_NewRunnableFunction(
+        "ConnectionEstablisher::ActivateCallback",
+        [self, aResult, onActivated = std::move(onActivated)]() {
+          if (NS_FAILED(aResult)) {
+            self->Finish(aResult);
+            return;
+          }
 
-    NS_DispatchToCurrentThread(
-        NS_NewRunnableFunction("ConnectionEstablisher::ActivateCallback",
-                               [self, onActivated = std::move(onActivated)]() {
-                                 onActivated(NS_OK);
-                               }));
+          onActivated(NS_OK);
+        }));
   };
 
   RefPtr<SpeculativeTransaction> trans =

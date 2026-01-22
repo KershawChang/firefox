@@ -7978,6 +7978,8 @@ nsresult nsHttpChannel::BeginConnect() {
   if (canUseHappyEyeballs()) {
     LOG(("%p NS_HTTP_USE_HAPPY_EYEBALLS ", this));
     mCaps |= NS_HTTP_USE_HAPPY_EYEBALLS;
+    mCaps &= ~NS_HTTP_FORCE_WAIT_HTTP_RR;
+    mConnectionInfo->SetHappyEyeballsEnabled(true);
   }
 
   // No need to lookup HTTPSSVC record if mHTTPSSVCRecord already contains a

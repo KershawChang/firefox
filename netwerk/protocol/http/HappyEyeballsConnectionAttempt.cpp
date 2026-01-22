@@ -175,7 +175,8 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
       }
 
       case HappyEyeballsEvent::Tag::AttemptConnection: {
-        LOG(("HappyEyeballsEvent::Tag::AttemptConnection protocol=%d port=%d "
+        LOG(
+            ("HappyEyeballsEvent::Tag::AttemptConnection protocol=%d port=%d "
              "addr_len=%u ech_config_len=%u",
              event.attempt_connection.protocol, event.attempt_connection.port,
              event.attempt_connection.addr_len,
@@ -198,9 +199,13 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
               event.attempt_connection.ech_config_len);
         }
 
-        LOG(("connect to:[%s] ech_config_len=%zu", res.unwrap().ToString().get(),
-             echConfig.Length()));
-        EstablishTCPConnection(res.unwrap(), event.attempt_connection.port);
+        LOG(("connect to:[%s] ech_config_len=%zu",
+             res.unwrap().ToString().get(), echConfig.Length()));
+        if (event.attempt_connection.protocol == ProtocolCombination::H3) {
+          EstablishUDPConnection(res.unwrap(), event.attempt_connection.port);
+        } else {
+          EstablishTCPConnection(res.unwrap(), event.attempt_connection.port);
+        }
         break;
       }
 
@@ -676,7 +681,6 @@ HappyEyeballsConnectionAttempt::OnLookupComplete(nsICancelable* request,
     return OnHTTPSRecord(rec, status);
   }
 
-  MOZ_ASSERT_UNREACHABLE("Unexpected DNS type");
   return NS_OK;
 }
 
@@ -858,7 +862,8 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
   }
 
   nsTArray<RefPtr<nsISVCBRecord>> svcbRecords;
-  (void)record->GetAllRecords(false, false, ""_ns, svcbRecords);
+  // TODO: Handle aNoHttp2, aNoHttp3, and aCname.
+  (void)record->GetRecords(svcbRecords);
   if (svcbRecords.IsEmpty()) {
     (void)ProcessDnsResponseHTTPS(mHost, nullptr, 0);
     return ProcessHappyEyeballsOutput();
