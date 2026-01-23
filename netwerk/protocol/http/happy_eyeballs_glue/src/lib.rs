@@ -1,5 +1,5 @@
 use nserror::{nsresult, NS_ERROR_INVALID_ARG, NS_ERROR_UNEXPECTED, NS_OK};
-use nsstring::nsACString;
+use nsstring::{nsACString, nsCString};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ptr;
 use thin_vec::ThinVec;
@@ -143,11 +143,11 @@ impl HappyEyeballs {
             };
 
             for svc_info in service_infos_slice {
-                let target = if !svc_info.target_name.is_null() {
-                    let t = unsafe { (&*svc_info.target_name).to_utf8().to_string() };
-                    happy_eyeballs::TargetName::from(t.as_str())
+                let target_str = svc_info.target_name.to_utf8();
+                let target = if target_str.is_empty() {
+                    todo!()
                 } else {
-                    name.clone()
+                    happy_eyeballs::TargetName::from(target_str.as_ref())
                 };
 
                 let mut alpn_set = std::collections::HashSet::new();
@@ -480,7 +480,7 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 #[repr(C)]
 pub struct ServiceInfoFFI {
     pub priority: u16,
-    pub target_name: *const nsACString,
+    pub target_name: nsCString,
     pub alpn_protocols: *const Protocol,
     pub alpn_protocols_len: u32,
     pub ech_config: *const u8,

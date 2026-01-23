@@ -955,7 +955,7 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
 
     ServiceInfoFFI svcInfo;
     svcInfo.priority = data.priority;
-    svcInfo.target_name = &data.targetName;
+    svcInfo.target_name = data.targetName;
     svcInfo.alpn_protocols = data.alpnArray.get();
     svcInfo.alpn_protocols_len = data.alpnLen;
     svcInfo.ech_config =
