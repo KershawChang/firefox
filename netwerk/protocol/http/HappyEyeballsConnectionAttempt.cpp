@@ -34,22 +34,26 @@ HappyEyeballsConnectionAttempt::HappyEyeballsConnectionAttempt(
   LOG(("HappyEyeballsConnectionAttempt ctor %p", this));
   if (mConnInfo->GetRoutedHost().IsEmpty()) {
     mHost = mConnInfo->GetOrigin();
+    nsTArray<AltSvc> emptyAltSvc;
     (void)happy_eyeballs_new(&mHappyEyeballs, &mHost,
                              static_cast<uint16_t>(mConnInfo->OriginPort()),
-                             nullptr, 0);
+                             &emptyAltSvc);
   } else {
     mHost = mConnInfo->GetRoutedHost();
     if (mConnInfo->IsHttp3()) {
       LOG(("HappyEyeballsConnectionAttempt for HTTP/3"));
+      nsTArray<AltSvc> altSvcArray;
       AltSvc altsvc{};
       altsvc.protocol = Protocol::H3;
+      altSvcArray.AppendElement(altsvc);
       (void)happy_eyeballs_new(&mHappyEyeballs, &mHost,
                                static_cast<uint16_t>(mConnInfo->RoutedPort()),
-                               &altsvc, 1);
+                               &altSvcArray);
     } else {
+      nsTArray<AltSvc> emptyAltSvc;
       (void)happy_eyeballs_new(&mHappyEyeballs, &mHost,
                                static_cast<uint16_t>(mConnInfo->RoutedPort()),
-                               nullptr, 0);
+                               &emptyAltSvc);
     }
   }
 }
@@ -86,11 +90,11 @@ static Result<NetAddr, nsresult> ToNetAddr(const nsTArray<uint8_t>& aData,
 }
 
 nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseA(
-    const nsACString& aHost, const NetAddr* aAddresses, uint32_t aAddrLen) {
+    const nsACString& aHost, const nsTArray<NetAddr>& aAddresses) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseA %p", this));
 
   nsresult rv = happy_eyeballs_process_dns_response_a(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aAddresses, aAddrLen);
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, &aAddresses);
   if (NS_FAILED(rv)) {
     LOG(("process_dns_response_a failed rv=%x", static_cast<uint32_t>(rv)));
   }
@@ -98,11 +102,11 @@ nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseA(
 }
 
 nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA(
-    const nsACString& aHost, const NetAddr* aAddresses, uint32_t aAddrLen) {
+    const nsACString& aHost, const nsTArray<NetAddr>& aAddresses) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA %p", this));
 
   nsresult rv = happy_eyeballs_process_dns_response_aaaa(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aAddresses, aAddrLen);
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, &aAddresses);
   if (NS_FAILED(rv)) {
     LOG(("process_dns_response_aaaa failed rv=%x", static_cast<uint32_t>(rv)));
   }
@@ -110,13 +114,11 @@ nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseAAAA(
 }
 
 nsresult HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS(
-    const nsACString& aHost, const ServiceInfoFFI* aServiceInfos,
-    uint32_t aServiceInfosLen) {
+    const nsACString& aHost, const nsTArray<ServiceInfoFFI>& aServiceInfos) {
   LOG(("HappyEyeballsConnectionAttempt::ProcessDnsResponseHTTPS %p", this));
 
   nsresult rv = happy_eyeballs_process_dns_response_https(
-      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, aServiceInfos,
-      aServiceInfosLen);
+      const_cast<HappyEyeballs*>(mHappyEyeballs), &aHost, &aServiceInfos);
   if (NS_FAILED(rv)) {
     LOG(("process_dns_response_https failed rv=%x", static_cast<uint32_t>(rv)));
   }
@@ -699,41 +701,6 @@ HappyEyeballsConnectionAttempt::OnLookupComplete(nsICancelable* request,
   return NS_OK;
 }
 
-static UniquePtr<NetAddr[]> ToRawArray(const nsTArray<NetAddr>& aArray,
-                                       size_t& aLength,
-                                       uint16_t aExpectedFamily) {
-  aLength = 0;
-  if (aArray.IsEmpty()) {
-    return nullptr;
-  }
-
-  // First pass: count matching addresses
-  for (size_t i = 0; i < aArray.Length(); ++i) {
-    if (aArray[i].raw.family == aExpectedFamily) {
-      aLength++;
-    }
-  }
-
-  if (aLength == 0) {
-    return nullptr;
-  }
-
-  // Allocate exact size needed
-  auto result = mozilla::MakeUnique<NetAddr[]>(aLength);
-
-  // Second pass: fill with matching addresses
-  size_t idx = 0;
-  for (size_t i = 0; i < aArray.Length(); ++i) {
-    if (aArray[i].raw.family == aExpectedFamily) {
-      LOG(("Addr=[%s]", aArray[i].ToString().get()));
-      result[idx] = aArray[i];
-      idx++;
-    }
-  }
-
-  return result;
-}
-
 nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
                                                    nsresult status) {
   LOG(("HappyEyeballsConnectionAttempt::OnARecord: this=%p status %" PRIx32,
@@ -748,7 +715,8 @@ nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
   mARecord = do_QueryInterface(aRecord);
   nsresult rv;
   if (NS_FAILED(status) || !mARecord) {
-    rv = ProcessDnsResponseA(mHost, nullptr, 0);
+    nsTArray<NetAddr> emptyArray;
+    rv = ProcessDnsResponseA(mHost, emptyArray);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -757,9 +725,17 @@ nsresult HappyEyeballsConnectionAttempt::OnARecord(nsIDNSRecord* aRecord,
 
   nsTArray<NetAddr> addresses;
   mARecord->GetAddresses(addresses);
-  size_t len = 0;
-  UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len, AF_INET);
-  rv = ProcessDnsResponseA(mHost, rawArray.get(), len);
+
+  // Filter to only IPv4 addresses
+  nsTArray<NetAddr> ipv4Addresses;
+  for (const auto& addr : addresses) {
+    if (addr.raw.family == AF_INET) {
+      LOG(("Addr=[%s]", addr.ToString().get()));
+      ipv4Addresses.AppendElement(addr);
+    }
+  }
+
+  rv = ProcessDnsResponseA(mHost, ipv4Addresses);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -780,7 +756,8 @@ nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
   mAAAARecord = do_QueryInterface(aRecord);
   nsresult rv;
   if (NS_FAILED(status) || !mAAAARecord) {
-    rv = ProcessDnsResponseAAAA(mHost, nullptr, 0);
+    nsTArray<NetAddr> emptyArray;
+    rv = ProcessDnsResponseAAAA(mHost, emptyArray);
     if (NS_FAILED(rv)) {
       return rv;
     }
@@ -789,9 +766,17 @@ nsresult HappyEyeballsConnectionAttempt::OnAAAARecord(nsIDNSRecord* aRecord,
 
   nsTArray<NetAddr> addresses;
   mAAAARecord->GetAddresses(addresses);
-  size_t len = 0;
-  UniquePtr<NetAddr[]> rawArray = ToRawArray(addresses, len, AF_INET6);
-  rv = ProcessDnsResponseAAAA(mHost, rawArray.get(), len);
+
+  // Filter to only IPv6 addresses
+  nsTArray<NetAddr> ipv6Addresses;
+  for (const auto& addr : addresses) {
+    if (addr.raw.family == AF_INET6) {
+      LOG(("Addr=[%s]", addr.ToString().get()));
+      ipv6Addresses.AppendElement(addr);
+    }
+  }
+
+  rv = ProcessDnsResponseAAAA(mHost, ipv6Addresses);
   if (NS_FAILED(rv)) {
     return rv;
   }
@@ -813,66 +798,14 @@ static Maybe<Protocol> AlpnStringToProtocol(const nsACString& aAlpn) {
   return Nothing();
 }
 
-// Convert nsTArray<nsCString> to Protocol array
-static UniquePtr<Protocol[]> AlpnArrayToProtocols(
-    const nsTArray<nsCString>& aAlpnArray, uint32_t& aProtocolsLen) {
-  aProtocolsLen = 0;
-
-  if (aAlpnArray.IsEmpty()) {
-    return nullptr;
-  }
-
-  // First pass: count valid protocols
-  for (const auto& alpn : aAlpnArray) {
-    if (AlpnStringToProtocol(alpn).isSome()) {
-      aProtocolsLen++;
-    }
-  }
-
-  if (aProtocolsLen == 0) {
-    return nullptr;
-  }
-
-  // Allocate array for protocols
-  auto protocols = MakeUnique<Protocol[]>(aProtocolsLen);
-
-  // Second pass: fill with converted protocols
-  uint32_t idx = 0;
-  for (const auto& alpn : aAlpnArray) {
-    auto protocol = AlpnStringToProtocol(alpn);
-    if (protocol) {
-      protocols[idx] = protocol.ref();
-      idx++;
-    }
-  }
-
-  return protocols;
-}
-
-static UniquePtr<NetAddr[]> ToNetAddrArray(nsTArray<RefPtr<nsINetAddr>>& aInput,
-                                           uint32_t& aLength) {
-  aLength = aInput.Length();
-  if (aLength == 0) {
-    return nullptr;
-  }
-
-  auto addresses = MakeUnique<NetAddr[]>(aLength);
-  uint32_t idx = 0;
-  for (const auto& addr : aInput) {
-    addr->GetNetAddr(&addresses[idx]);
-    idx++;
-  }
-
-  return addresses;
-}
-
 nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
                                                        nsresult status) {
   LOG(("HappyEyeballsConnectionAttempt::OnHTTPSRecord %p status=%x", this,
        static_cast<uint32_t>(status)));
   nsCOMPtr<nsIDNSHTTPSSVCRecord> record = do_QueryInterface(aRecord);
   if (!record || NS_FAILED(status)) {
-    (void)ProcessDnsResponseHTTPS(mHost, nullptr, 0);
+    nsTArray<ServiceInfoFFI> emptyArray;
+    (void)ProcessDnsResponseHTTPS(mHost, emptyArray);
     return ProcessHappyEyeballsOutput();
   }
 
@@ -880,29 +813,17 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
   // TODO: Handle aNoHttp2, aNoHttp3, and aCname.
   (void)record->GetRecords(svcbRecords);
   if (svcbRecords.IsEmpty()) {
-    (void)ProcessDnsResponseHTTPS(mHost, nullptr, 0);
+    nsTArray<ServiceInfoFFI> emptyArray;
+    (void)ProcessDnsResponseHTTPS(mHost, emptyArray);
     return ProcessHappyEyeballsOutput();
   }
 
-  struct ServiceInfoData {
-    nsCString targetName;
-    UniquePtr<Protocol[]> alpnArray;
-    uint32_t alpnLen;
-    nsCString echConfig;
-    UniquePtr<NetAddr[]> ipv4Array;
-    uint32_t ipv4Len;
-    UniquePtr<NetAddr[]> ipv6Array;
-    uint32_t ipv6Len;
-    uint16_t priority;
-  };
-
-  nsTArray<ServiceInfoData> serviceData;
   nsTArray<ServiceInfoFFI> serviceInfos;
 
   for (const auto& svcbRecord : svcbRecords) {
-    ServiceInfoData data;
-    (void)svcbRecord->GetPriority(&data.priority);
-    (void)svcbRecord->GetName(data.targetName);
+    ServiceInfoFFI svcInfo;
+    (void)svcbRecord->GetPriority(&svcInfo.priority);
+    (void)svcbRecord->GetName(svcInfo.target_name);
 
     nsTArray<RefPtr<nsISVCParam>> values;
     (void)svcbRecord->GetValues(values);
@@ -941,7 +862,11 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
         case SvcParamKeyEchConfig: {
           nsCOMPtr<nsISVCParamEchConfig> echConfigParam =
               do_QueryInterface(value);
-          (void)echConfigParam->GetEchconfig(data.echConfig);
+          nsCString echConfig;
+          (void)echConfigParam->GetEchconfig(echConfig);
+          svcInfo.ech_config.AppendElements(
+              reinterpret_cast<const uint8_t*>(echConfig.BeginReading()),
+              echConfig.Length());
           break;
         }
         default:
@@ -949,29 +874,29 @@ nsresult HappyEyeballsConnectionAttempt::OnHTTPSRecord(nsIDNSRecord* aRecord,
       }
     }
 
-    data.alpnArray = AlpnArrayToProtocols(alpn, data.alpnLen);
-    data.ipv4Array = ToNetAddrArray(ipv4Hint, data.ipv4Len);
-    data.ipv6Array = ToNetAddrArray(ipv6Hint, data.ipv6Len);
+    for (const auto& alpnStr : alpn) {
+      auto protocol = AlpnStringToProtocol(alpnStr);
+      if (protocol) {
+        svcInfo.alpn_protocols.AppendElement(protocol.ref());
+      }
+    }
 
-    ServiceInfoFFI svcInfo;
-    svcInfo.priority = data.priority;
-    svcInfo.target_name = data.targetName;
-    svcInfo.alpn_protocols = data.alpnArray.get();
-    svcInfo.alpn_protocols_len = data.alpnLen;
-    svcInfo.ech_config =
-        reinterpret_cast<const uint8_t*>(data.echConfig.BeginReading());
-    svcInfo.ech_config_len = data.echConfig.Length();
-    svcInfo.ipv4_hints = data.ipv4Array.get();
-    svcInfo.ipv4_hints_len = data.ipv4Len;
-    svcInfo.ipv6_hints = data.ipv6Array.get();
-    svcInfo.ipv6_hints_len = data.ipv6Len;
+    for (const auto& addr : ipv4Hint) {
+      NetAddr netAddr;
+      addr->GetNetAddr(&netAddr);
+      svcInfo.ipv4_hints.AppendElement(netAddr);
+    }
 
-    serviceData.AppendElement(std::move(data));
-    serviceInfos.AppendElement(svcInfo);
+    for (const auto& addr : ipv6Hint) {
+      NetAddr netAddr;
+      addr->GetNetAddr(&netAddr);
+      svcInfo.ipv6_hints.AppendElement(netAddr);
+    }
+
+    serviceInfos.AppendElement(std::move(svcInfo));
   }
 
-  (void)ProcessDnsResponseHTTPS(mHost, serviceInfos.Elements(),
-                                serviceInfos.Length());
+  (void)ProcessDnsResponseHTTPS(mHost, serviceInfos);
   return ProcessHappyEyeballsOutput();
 }
 

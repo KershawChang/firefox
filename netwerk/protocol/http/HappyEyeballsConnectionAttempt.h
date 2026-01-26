@@ -46,12 +46,11 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   ~HappyEyeballsConnectionAttempt();
 
   nsresult ProcessDnsResponseA(const nsACString& aHost,
-                               const NetAddr* aAddresses, uint32_t aAddrLen);
+                               const nsTArray<NetAddr>& aAddresses);
   nsresult ProcessDnsResponseAAAA(const nsACString& aHost,
-                                  const NetAddr* aAddresses, uint32_t aAddrLen);
+                                  const nsTArray<NetAddr>& aAddresses);
   nsresult ProcessDnsResponseHTTPS(const nsACString& aHost,
-                                   const ServiceInfoFFI* aServiceInfos,
-                                   uint32_t aServiceInfosLen);
+                                   const nsTArray<ServiceInfoFFI>& aServiceInfos);
   nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups

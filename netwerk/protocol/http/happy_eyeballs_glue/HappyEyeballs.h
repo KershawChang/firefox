@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include "nsError.h"
+#include "nsTArray.h"
 #include "mozilla/net/happy_eyeballs_glue.h"
 
 namespace mozilla {
@@ -16,10 +17,10 @@ class HappyEyeballsAPI final {
  public:
   static nsresult Init(HappyEyeballs** aHappyEyeballs,
                        const nsACString& aOrigin, uint16_t aPort,
-                       const AltSvc* aAltSvc = nullptr,
-                       uint32_t aAltSvcLen = 0) {
+                       const nsTArray<AltSvc>* aAltSvc = nullptr) {
+    nsTArray<AltSvc> emptyAltSvc;
     return happy_eyeballs_new((const HappyEyeballs**)aHappyEyeballs, &aOrigin,
-                              aPort, aAltSvc, aAltSvcLen);
+                              aPort, aAltSvc ? aAltSvc : &emptyAltSvc);
   }
 };
 

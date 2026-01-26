@@ -35,8 +35,7 @@ impl HappyEyeballs {
     fn process_dns_response_a(
         &mut self,
         hostname: *const nsACString,
-        addrs: *const NetAddr,
-        addrs_len: u32,
+        addrs: &ThinVec<NetAddr>,
     ) -> nsresult {
         if hostname.is_null() {
             return NS_ERROR_UNEXPECTED;
@@ -44,28 +43,21 @@ impl HappyEyeballs {
         let host = unsafe { (&*hostname).to_utf8().to_string() };
         let name = happy_eyeballs::TargetName::from(host.as_str());
 
-        let inner = if addrs_len == 0 {
-            happy_eyeballs::DnsResultInner::A(Ok(Vec::new()))
-        } else {
-            if addrs.is_null() {
+        let mut out = Vec::with_capacity(addrs.len());
+        for na in addrs.iter() {
+            let family = i32::from(unsafe {
+                moz_netaddr_get_family((na as *const NetAddr).cast())
+            });
+            if family != AF_INET {
                 return NS_ERROR_UNEXPECTED;
             }
-            let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
-            let mut out = Vec::with_capacity(slice.len());
-            for na in slice.iter() {
-                let family = i32::from(unsafe { moz_netaddr_get_family((na as *const NetAddr).cast()) });
-                debug_assert_eq!(family, AF_INET, "Expected IPv4 address in A record response");
-                if family != AF_INET {
-                    return NS_ERROR_UNEXPECTED;
-                }
-                let ip_be =
-                    unsafe { moz_netaddr_get_network_order_ip((na as *const NetAddr).cast()) };
-                let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
-                out.push(ipv4);
-            }
-            happy_eyeballs::DnsResultInner::A(Ok(out))
-        };
+            let ip_be =
+                unsafe { moz_netaddr_get_network_order_ip((na as *const NetAddr).cast()) };
+            let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+            out.push(ipv4);
+        }
 
+        let inner = happy_eyeballs::DnsResultInner::A(Ok(out));
         let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
             target_name: name,
             inner,
@@ -78,8 +70,7 @@ impl HappyEyeballs {
     fn process_dns_response_aaaa(
         &mut self,
         hostname: *const nsACString,
-        addrs: *const NetAddr,
-        addrs_len: u32,
+        addrs: &ThinVec<NetAddr>,
     ) -> nsresult {
         if hostname.is_null() {
             return NS_ERROR_UNEXPECTED;
@@ -87,29 +78,22 @@ impl HappyEyeballs {
         let host = unsafe { (&*hostname).to_utf8().to_string() };
         let name = happy_eyeballs::TargetName::from(host.as_str());
 
-        let inner = if addrs_len == 0 {
-            happy_eyeballs::DnsResultInner::Aaaa(Ok(Vec::new()))
-        } else {
-            if addrs.is_null() {
+        let mut out = Vec::with_capacity(addrs.len());
+        for na in addrs.iter() {
+            let family = i32::from(unsafe {
+                moz_netaddr_get_family((na as *const NetAddr).cast())
+            });
+            if family != AF_INET6 {
                 return NS_ERROR_UNEXPECTED;
             }
-            let slice = unsafe { std::slice::from_raw_parts(addrs, addrs_len as usize) };
-            let mut out = Vec::with_capacity(slice.len());
-            for na in slice.iter() {
-                let family = i32::from(unsafe { moz_netaddr_get_family((na as *const NetAddr).cast()) });
-                debug_assert_eq!(family, AF_INET6, "Expected IPv6 address in AAAA record response");
-                if family != AF_INET6 {
-                    return NS_ERROR_UNEXPECTED;
-                }
-                let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
-                let octs: [u8; 16] =
-                    unsafe { std::slice::from_raw_parts(p, 16).try_into().unwrap() };
-                let ipv6 = Ipv6Addr::from(octs);
-                out.push(ipv6);
-            }
-            happy_eyeballs::DnsResultInner::Aaaa(Ok(out))
-        };
+            let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
+            let octs: [u8; 16] =
+                unsafe { std::slice::from_raw_parts(p, 16).try_into().unwrap() };
+            let ipv6 = Ipv6Addr::from(octs);
+            out.push(ipv6);
+        }
 
+        let inner = happy_eyeballs::DnsResultInner::Aaaa(Ok(out));
         let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
             target_name: name,
             inner,
@@ -122,8 +106,7 @@ impl HappyEyeballs {
     fn process_dns_response_https(
         &mut self,
         hostname: *const nsACString,
-        service_infos: *const ServiceInfoFFI,
-        service_infos_len: u32,
+        service_infos: &ThinVec<ServiceInfoFFI>,
     ) -> nsresult {
         if hostname.is_null() {
             return NS_ERROR_UNEXPECTED;
@@ -133,16 +116,7 @@ impl HappyEyeballs {
 
         let mut parsed_infos = Vec::new();
 
-        if service_infos_len > 0 {
-            if service_infos.is_null() {
-                return NS_ERROR_UNEXPECTED;
-            }
-
-            let service_infos_slice = unsafe {
-                std::slice::from_raw_parts(service_infos, service_infos_len as usize)
-            };
-
-            for svc_info in service_infos_slice {
+        for svc_info in service_infos {
                 let target_str = svc_info.target_name.to_utf8();
                 let target = if target_str.is_empty() {
                     todo!()
@@ -151,78 +125,46 @@ impl HappyEyeballs {
                 };
 
                 let mut alpn_set = std::collections::HashSet::new();
-                if !svc_info.alpn_protocols.is_null() && svc_info.alpn_protocols_len > 0 {
-                    let alpn_slice = unsafe {
-                        std::slice::from_raw_parts(
-                            svc_info.alpn_protocols,
-                            svc_info.alpn_protocols_len as usize,
-                        )
-                    };
-                    for protocol in alpn_slice {
-                        alpn_set.insert((*protocol).into());
-                    }
+                for protocol in &svc_info.alpn_protocols {
+                    alpn_set.insert((*protocol).into());
                 }
 
-                let ech = if !svc_info.ech_config.is_null() && svc_info.ech_config_len > 0 {
-                    Some(
-                        unsafe {
-                            std::slice::from_raw_parts(
-                                svc_info.ech_config,
-                                svc_info.ech_config_len as usize,
-                            )
-                        }
-                        .to_vec(),
-                    )
-                } else {
+                let ech = if svc_info.ech_config.is_empty() {
                     None
+                } else {
+                    Some(svc_info.ech_config.to_vec())
                 };
 
                 let mut ipv4_vec = Vec::new();
-                if !svc_info.ipv4_hints.is_null() && svc_info.ipv4_hints_len > 0 {
-                    let hints_slice = unsafe {
-                        std::slice::from_raw_parts(
-                            svc_info.ipv4_hints,
-                            svc_info.ipv4_hints_len as usize,
-                        )
-                    };
-                    for na in hints_slice {
-                        let family = i32::from(unsafe {
-                            moz_netaddr_get_family((na as *const NetAddr).cast())
-                        });
-                        debug_assert_eq!(family, AF_INET, "Expected IPv4 address in IPv4 hints");
-                        if family != AF_INET {
-                            return NS_ERROR_UNEXPECTED;
-                        }
-                        let ip_be = unsafe {
-                            moz_netaddr_get_network_order_ip((na as *const NetAddr).cast())
-                        };
-                        let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
-                        ipv4_vec.push(ipv4);
+                for na in &svc_info.ipv4_hints {
+                    let family = i32::from(unsafe {
+                        moz_netaddr_get_family((na as *const NetAddr).cast())
+                    });
+                    debug_assert_eq!(family, AF_INET, "Expected IPv4 address in IPv4 hints");
+                    if family != AF_INET {
+                        return NS_ERROR_UNEXPECTED;
                     }
+                    let ip_be = unsafe {
+                        moz_netaddr_get_network_order_ip((na as *const NetAddr).cast())
+                    };
+                    let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
+                    ipv4_vec.push(ipv4);
                 }
 
                 let mut ipv6_vec = Vec::new();
-                if !svc_info.ipv6_hints.is_null() && svc_info.ipv6_hints_len > 0 {
-                    let hints_slice = unsafe {
-                        std::slice::from_raw_parts(
-                            svc_info.ipv6_hints,
-                            svc_info.ipv6_hints_len as usize,
-                        )
-                    };
-                    for na in hints_slice {
-                        let family = i32::from(unsafe {
-                            moz_netaddr_get_family((na as *const NetAddr).cast())
-                        });
-                        debug_assert_eq!(family, AF_INET6, "Expected IPv6 address in IPv6 hints");
-                        if family != AF_INET6 {
-                            return NS_ERROR_UNEXPECTED;
-                        }
-                        let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
-                        let octs: [u8; 16] =
-                            unsafe { std::slice::from_raw_parts(p, 16).try_into().unwrap() };
-                        let ipv6 = Ipv6Addr::from(octs);
-                        ipv6_vec.push(ipv6);
+                for na in &svc_info.ipv6_hints {
+                    let family = i32::from(unsafe {
+                        moz_netaddr_get_family((na as *const NetAddr).cast())
+                    });
+                    debug_assert_eq!(family, AF_INET6, "Expected IPv6 address in IPv6 hints");
+                    if family != AF_INET6 {
+                        return NS_ERROR_UNEXPECTED;
                     }
+                    let p = unsafe { moz_netaddr_get_ipv6((na as *const NetAddr).cast()) };
+                    let octs: [u8; 16] =
+                        unsafe { std::slice::from_raw_parts(p, 16).try_into().unwrap() };
+                    let ipv6 = Ipv6Addr::from(octs);
+                    ipv6_vec.push(ipv6);
                 }
 
                 parsed_infos.push(happy_eyeballs::ServiceInfo {
@@ -233,7 +175,6 @@ impl HappyEyeballs {
                     ipv4_hints: ipv4_vec,
                     ipv6_hints: ipv6_vec,
                 });
-            }
         }
 
         let inner = happy_eyeballs::DnsResultInner::Https(Ok(parsed_infos));
@@ -347,8 +288,7 @@ pub extern "C" fn happy_eyeballs_new(
     result: &mut *const HappyEyeballs,
     origin: *const nsACString,
     port: u16,
-    alt_svc: *const AltSvc,
-    alt_svc_len: u32,
+    alt_svc: &ThinVec<AltSvc>,
 ) -> nsresult {
     *result = ptr::null_mut();
 
@@ -358,19 +298,14 @@ pub extern "C" fn happy_eyeballs_new(
 
     let origin_str = unsafe { (&*origin).to_utf8().to_string() };
 
-    let alt_svc_vec = if !alt_svc.is_null() && alt_svc_len > 0 {
-        let slice = unsafe { std::slice::from_raw_parts(alt_svc, alt_svc_len as usize) };
-        slice
-            .iter()
-            .map(|a| happy_eyeballs::AltSvc {
-                host: None,
-                port: None,
-                protocol: a.protocol.into(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let alt_svc_vec: Vec<_> = alt_svc
+        .iter()
+        .map(|a| happy_eyeballs::AltSvc {
+            host: None,
+            port: None,
+            protocol: a.protocol.into(),
+        })
+        .collect();
 
     let network_config = happy_eyeballs::NetworkConfig {
         alt_svc: alt_svc_vec,
@@ -481,14 +416,10 @@ impl From<happy_eyeballs::Protocol> for ProtocolCombination {
 pub struct ServiceInfoFFI {
     pub priority: u16,
     pub target_name: nsCString,
-    pub alpn_protocols: *const Protocol,
-    pub alpn_protocols_len: u32,
-    pub ech_config: *const u8,
-    pub ech_config_len: u32,
-    pub ipv4_hints: *const NetAddr,
-    pub ipv4_hints_len: u32,
-    pub ipv6_hints: *const NetAddr,
-    pub ipv6_hints_len: u32,
+    pub alpn_protocols: ThinVec<Protocol>,
+    pub ech_config: ThinVec<u8>,
+    pub ipv4_hints: ThinVec<NetAddr>,
+    pub ipv6_hints: ThinVec<NetAddr>,
 }
 
 #[repr(C)]
@@ -506,30 +437,27 @@ pub enum Output {
 pub extern "C" fn happy_eyeballs_process_dns_response_a(
     he: &mut HappyEyeballs,
     hostname: *const nsACString,
-    addrs: *const NetAddr,
-    addrs_len: u32,
+    addrs: &ThinVec<NetAddr>,
 ) -> nsresult {
-    he.process_dns_response_a(hostname, addrs, addrs_len)
+    he.process_dns_response_a(hostname, addrs)
 }
 
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_dns_response_aaaa(
     he: &mut HappyEyeballs,
     hostname: *const nsACString,
-    addrs: *const NetAddr,
-    addrs_len: u32,
+    addrs: &ThinVec<NetAddr>,
 ) -> nsresult {
-    he.process_dns_response_aaaa(hostname, addrs, addrs_len)
+    he.process_dns_response_aaaa(hostname, addrs)
 }
 
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_dns_response_https(
     he: &mut HappyEyeballs,
     hostname: *const nsACString,
-    service_infos: *const ServiceInfoFFI,
-    service_infos_len: u32,
+    service_infos: &ThinVec<ServiceInfoFFI>,
 ) -> nsresult {
-    he.process_dns_response_https(hostname, service_infos, service_infos_len)
+    he.process_dns_response_https(hostname, service_infos)
 }
 
 #[no_mangle]
