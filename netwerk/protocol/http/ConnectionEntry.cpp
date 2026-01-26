@@ -43,7 +43,7 @@ ConnectionEntry::ConnectionEntry(nsHttpConnectionInfo* ci)
       mDoNotDestroy(false) {
   LOG(("ConnectionEntry::ConnectionEntry this=%p key=%s", this,
        ci->HashKey().get()));
-  mConnectionAttemptPool = new ConnectionAttemptPool(mConnInfo);
+  mConnectionAttemptPool = new ConnectionAttemptPool(this);
 }
 
 bool ConnectionEntry::HasActiveH3Connection() {

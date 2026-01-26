@@ -21,7 +21,7 @@ class ConnectionAttemptPool final {
  public:
   NS_INLINE_DECL_THREADSAFE_REFCOUNTING(ConnectionAttemptPool)
 
-  explicit ConnectionAttemptPool(nsHttpConnectionInfo* info);
+  explicit ConnectionAttemptPool(ConnectionEntry* aEntry);
 
   nsresult StartConnectionEstablishment(
       ConnectionEntry* entry, nsAHttpTransaction* trans, uint32_t caps,
@@ -49,7 +49,7 @@ class ConnectionAttemptPool final {
 
   void InsertIntoConnectionAttempts(ConnectionAttempt* sock);
 
-  RefPtr<nsHttpConnectionInfo> mConnInfo;
+  WeakPtr<ConnectionEntry> mEntry;
   nsTArray<RefPtr<ConnectionAttempt>> mUnconnectedConns;
 };
 

@@ -20,8 +20,8 @@
 
 namespace mozilla::net {
 
-ConnectionAttemptPool::ConnectionAttemptPool(nsHttpConnectionInfo* info)
-    : mConnInfo(info) {
+ConnectionAttemptPool::ConnectionAttemptPool(ConnectionEntry* aEntry)
+    : mEntry(aEntry) {
   LOG(("ConnectionAttemptPool ctor %p", this));
 }
 
@@ -39,12 +39,13 @@ nsresult ConnectionAttemptPool::StartConnectionEstablishment(
              (!speculative && pendingTransInfo));
 
   RefPtr<ConnectionAttempt> connAttempt;
-  if (mConnInfo->GetHappyEyeballsEnabled()) {
-    connAttempt = new HappyEyeballsConnectionAttempt(mConnInfo, trans, caps,
+  nsHttpConnectionInfo* ci = trans->ConnectionInfo();
+  if (ci->GetHappyEyeballsEnabled()) {
+    connAttempt = new HappyEyeballsConnectionAttempt(ci, trans, caps,
                                                      speculative, urgentStart);
   } else {
-    connAttempt = new DnsAndConnectSocket(mConnInfo, trans, caps, speculative,
-                                          urgentStart);
+    connAttempt = new DnsAndConnectSocket(entry->mConnInfo, trans, caps,
+                                          speculative, urgentStart);
   }
 
   if (speculative) {
@@ -90,11 +91,9 @@ void ConnectionAttemptPool::RemoveConnectionAttempt(ConnectionAttempt* sock,
     // perhaps this reverted RestrictConnections()
     // use the PostEvent version of processpendingq to avoid
     // altering the pending q vector from an arbitrary stack
-    nsresult rv = gHttpHandler->ConnMgr()->ProcessPendingQ(mConnInfo);
-    if (NS_FAILED(rv)) {
-      LOG(
-          ("ConnectionAttemptPool::RemoveConnectionAttempt\n"
-           "    failed to process pending queue\n"));
+    RefPtr<ConnectionEntry> entry(mEntry);
+    if (entry) {
+      gHttpHandler->ConnMgr()->ProcessPendingQForEntry(entry);
     }
   }
 }
@@ -117,11 +116,9 @@ void ConnectionAttemptPool::CloseAllConnectionAttempts() {
 
   mUnconnectedConns.Clear();
 
-  nsresult rv = gHttpHandler->ConnMgr()->ProcessPendingQ(mConnInfo);
-  if (NS_FAILED(rv)) {
-    LOG(
-        ("ConnectionAttemptPool::CloseAllConnectionAttempts\n"
-         "    failed to process pending queue\n"));
+  RefPtr<ConnectionEntry> entry(mEntry);
+  if (entry) {
+    gHttpHandler->ConnMgr()->ProcessPendingQForEntry(entry);
   }
 }
 

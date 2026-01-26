@@ -612,7 +612,7 @@ void HappyEyeballsConnectionAttempt::ProcessUDPConn(HttpConnectionUDP* aConn,
   }
 
   aConn->SetIsRacing(false);
-  gHttpHandler->ConnMgr()->ReportHttp3Connection(aConn);
+  gHttpHandler->ConnMgr()->ReportHttp3Connection(aConn, entry);
 }
 
 void HappyEyeballsConnectionAttempt::OnSucceeded() {
@@ -683,17 +683,17 @@ HappyEyeballsConnectionAttempt::OnLookupComplete(nsICancelable* request,
                                                  nsIDNSRecord* rec,
                                                  nsresult status) {
   LOG(("HappyEyeballsConnectionAttempt::OnLookupComplete"));
-  if (request == mARequest) {
+  if (request && request == mARequest) {
     mARequest = nullptr;
     return OnARecord(rec, status);
   }
 
-  if (request == mAAAARequest) {
+  if (request && request == mAAAARequest) {
     mAAAARequest = nullptr;
     return OnAAAARecord(rec, status);
   }
 
-  if (request == mHTTPSRequest) {
+  if (request && request == mHTTPSRequest) {
     mHTTPSRequest = nullptr;
     return OnHTTPSRecord(rec, status);
   }
