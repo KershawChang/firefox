@@ -512,14 +512,12 @@ nsresult TCPConnectionEstablisher::CreateAndConfigureSocketTransport() {
   // NS_ENSURE_SUCCESS(rv, rv);
 
   // TODO: set ECH later
-  /*if (nsHttpHandler::EchConfigEnabled() && !ci->GetEchConfig().IsEmpty()) {
-    MOZ_ASSERT(!dnsAndSock->mIsHttp3);
+  if (nsHttpHandler::EchConfigEnabled() &&
+      !mConnInfo->GetEchConfig().IsEmpty()) {
     LOG(("Setting ECH"));
-    rv = socketTransport->SetEchConfig(ci->GetEchConfig());
+    rv = socketTransport->SetEchConfig(mConnInfo->GetEchConfig());
     NS_ENSURE_SUCCESS(rv, rv);
-
-    NotifyActivity(dnsAndSock->mConnInfo, NS_HTTP_ACTIVITY_SUBTYPE_ECH_SET);
-  }*/
+  }
 
   mSynStarted = TimeStamp::Now();
 

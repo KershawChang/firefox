@@ -204,9 +204,11 @@ nsresult HappyEyeballsConnectionAttempt::ProcessHappyEyeballsOutput() {
         LOG(("connect to:[%s] ech_config_len=%zu",
              res.unwrap().ToString().get(), echConfig.Length()));
         if (event.attempt_connection.protocol == ProtocolCombination::H3) {
-          EstablishUDPConnection(res.unwrap(), event.attempt_connection.port);
+          EstablishUDPConnection(res.unwrap(), event.attempt_connection.port,
+                                 std::move(echConfig));
         } else {
-          EstablishTCPConnection(res.unwrap(), event.attempt_connection.port);
+          EstablishTCPConnection(res.unwrap(), event.attempt_connection.port,
+                                 std::move(echConfig));
         }
         break;
       }
@@ -420,12 +422,16 @@ void HappyEyeballsConnectionAttempt::HandleTCPConnectionResult(
 }
 
 nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
-    NetAddr aAddr, uint16_t aPort) {
+    NetAddr aAddr, uint16_t aPort, nsTArray<uint8_t>&& aEchConfig) {
   NetAddrKey key(aAddr);
   // TODO: we always use ProtocolCombination::H2OrH1 for now. Do we really want
   // to race H2 and H1?
   RefPtr<nsHttpConnectionInfo> info =
       mConnInfo->CloneAndAdoptPortAndAlpn(aPort, ProtocolCombination::H2OrH1);
+  if (!aEchConfig.IsEmpty()) {
+    info->SetEchConfig(
+        nsCString((const char*)aEchConfig.Elements(), aEchConfig.Length()));
+  }
   RefPtr<TCPConnectionEstablisher> establisher =
       new TCPConnectionEstablisher(info, key, mCaps, mSpeculative, mAllow1918);
   auto callback = [self = RefPtr{this}, establisher](
@@ -443,10 +449,14 @@ nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
 }
 
 nsresult HappyEyeballsConnectionAttempt::EstablishUDPConnection(
-    NetAddr aAddr, uint16_t aPort) {
+    NetAddr aAddr, uint16_t aPort, nsTArray<uint8_t>&& aEchConfig) {
   NetAddrKey key(aAddr);
   RefPtr<nsHttpConnectionInfo> info =
       mConnInfo->CloneAndAdoptPortAndAlpn(aPort, ProtocolCombination::H3);
+  if (!aEchConfig.IsEmpty()) {
+    info->SetEchConfig(
+        nsCString((const char*)aEchConfig.Elements(), aEchConfig.Length()));
+  }
   RefPtr<UDPConnectionEstablisher> establisher =
       new UDPConnectionEstablisher(info, key, mCaps);
   auto callback = [self = RefPtr{this}, establisher](

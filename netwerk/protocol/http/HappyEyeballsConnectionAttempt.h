@@ -49,8 +49,8 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                const nsTArray<NetAddr>& aAddresses);
   nsresult ProcessDnsResponseAAAA(const nsACString& aHost,
                                   const nsTArray<NetAddr>& aAddresses);
-  nsresult ProcessDnsResponseHTTPS(const nsACString& aHost,
-                                   const nsTArray<ServiceInfoFFI>& aServiceInfos);
+  nsresult ProcessDnsResponseHTTPS(
+      const nsACString& aHost, const nsTArray<ServiceInfoFFI>& aServiceInfos);
   nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups
@@ -63,12 +63,14 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsresult OnHTTPSRecord(nsIDNSRecord* aRecord, nsresult status);
 
   // Connection Attempt
-  nsresult EstablishTCPConnection(NetAddr aAddr, uint16_t aPort);
+  nsresult EstablishTCPConnection(NetAddr aAddr, uint16_t aPort,
+                                  nsTArray<uint8_t>&& aEchConfig);
   void HandleTCPConnectionResult(
       Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
       TCPConnectionEstablisher* aEstablisher);
   void CancelConnection(NetAddr aAddr);
-  nsresult EstablishUDPConnection(NetAddr aAddr, uint16_t aPort);
+  nsresult EstablishUDPConnection(NetAddr aAddr, uint16_t aPort,
+                                  nsTArray<uint8_t>&& aEchConfig);
   void HandleUDPConnectionResult(
       Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
       UDPConnectionEstablisher* aEstablisher);
