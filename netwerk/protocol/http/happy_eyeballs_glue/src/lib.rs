@@ -2,6 +2,7 @@ use nserror::{nsresult, NS_ERROR_INVALID_ARG, NS_ERROR_UNEXPECTED, NS_OK};
 use nsstring::{nsACString, nsCString};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::ptr;
+use std::time::Instant;
 use thin_vec::ThinVec;
 use xpcom::{AtomicRefcnt, RefCounted, RefPtr};
 
@@ -32,17 +33,7 @@ pub struct HappyEyeballs {
 }
 
 impl HappyEyeballs {
-    fn process_dns_response_a(
-        &mut self,
-        hostname: *const nsACString,
-        addrs: &ThinVec<NetAddr>,
-    ) -> nsresult {
-        if hostname.is_null() {
-            return NS_ERROR_UNEXPECTED;
-        }
-        let host = unsafe { (&*hostname).to_utf8().to_string() };
-        let name = happy_eyeballs::TargetName::from(host.as_str());
-
+    fn process_dns_response_a(&mut self, id: u64, addrs: &ThinVec<NetAddr>) -> nsresult {
         let mut out = Vec::with_capacity(addrs.len());
         for na in addrs.iter() {
             let family = i32::from(unsafe {
@@ -57,27 +48,17 @@ impl HappyEyeballs {
             out.push(ipv4);
         }
 
-        let inner = happy_eyeballs::DnsResultInner::A(Ok(out));
-        let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
-            target_name: name,
-            inner,
-        });
-        self.inner.process_input(input);
+        let result = happy_eyeballs::DnsResult::A(Ok(out));
+        let input = happy_eyeballs::Input::DnsResult {
+            id: id.into(),
+            result,
+        };
+        self.inner.process_input(input, Instant::now());
 
         NS_OK
     }
 
-    fn process_dns_response_aaaa(
-        &mut self,
-        hostname: *const nsACString,
-        addrs: &ThinVec<NetAddr>,
-    ) -> nsresult {
-        if hostname.is_null() {
-            return NS_ERROR_UNEXPECTED;
-        }
-        let host = unsafe { (&*hostname).to_utf8().to_string() };
-        let name = happy_eyeballs::TargetName::from(host.as_str());
-
+    fn process_dns_response_aaaa(&mut self, id: u64, addrs: &ThinVec<NetAddr>) -> nsresult {
         let mut out = Vec::with_capacity(addrs.len());
         for na in addrs.iter() {
             let family = i32::from(unsafe {
@@ -93,27 +74,21 @@ impl HappyEyeballs {
             out.push(ipv6);
         }
 
-        let inner = happy_eyeballs::DnsResultInner::Aaaa(Ok(out));
-        let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
-            target_name: name,
-            inner,
-        });
-        self.inner.process_input(input);
+        let result = happy_eyeballs::DnsResult::Aaaa(Ok(out));
+        let input = happy_eyeballs::Input::DnsResult {
+            id: id.into(),
+            result,
+        };
+        self.inner.process_input(input, Instant::now());
 
         NS_OK
     }
 
     fn process_dns_response_https(
         &mut self,
-        hostname: *const nsACString,
+        id: u64,
         service_infos: &ThinVec<ServiceInfoFFI>,
     ) -> nsresult {
-        if hostname.is_null() {
-            return NS_ERROR_UNEXPECTED;
-        }
-        let host = unsafe { (&*hostname).to_utf8().to_string() };
-        let name = happy_eyeballs::TargetName::from(host.as_str());
-
         let mut parsed_infos = Vec::new();
 
         for svc_info in service_infos {
@@ -177,64 +152,44 @@ impl HappyEyeballs {
                 });
         }
 
-        let inner = happy_eyeballs::DnsResultInner::Https(Ok(parsed_infos));
-
-        let input = happy_eyeballs::Input::DnsResult(happy_eyeballs::DnsResult {
-            target_name: name,
-            inner,
-        });
-        self.inner.process_input(input);
+        let result = happy_eyeballs::DnsResult::Https(Ok(parsed_infos));
+        let input = happy_eyeballs::Input::DnsResult {
+            id: id.into(),
+            result,
+        };
+        self.inner.process_input(input, Instant::now());
 
         NS_OK
     }
 
-    fn process_connection_result(
-        &mut self,
-        addr: *const NetAddr,
-        status: nsresult,
-    ) -> nsresult {
-        if addr.is_null() {
-            return NS_ERROR_UNEXPECTED;
-        }
-        let netaddr = unsafe { &*addr };
-        let port = u16::from_be(unsafe { moz_netaddr_get_network_order_port(netaddr) });
-
-        let family = i32::from(unsafe { moz_netaddr_get_family(netaddr) });
-        let address = if family == AF_INET {
-            let ip_be = unsafe { moz_netaddr_get_network_order_ip(netaddr) };
-            let ipv4 = Ipv4Addr::from(u32::from_be(ip_be));
-            SocketAddr::from((ipv4, port))
-        } else if family == AF_INET6 {
-            let ipv6_ptr = unsafe { moz_netaddr_get_ipv6(netaddr) };
-            let octs: [u8; 16] =
-                unsafe { std::slice::from_raw_parts(ipv6_ptr, 16).try_into().unwrap() };
-            let ipv6 = Ipv6Addr::from(octs);
-            SocketAddr::from((ipv6, port))
-        } else {
-            return NS_ERROR_UNEXPECTED;
-        };
-
+    fn process_connection_result(&mut self, id: u64, status: nsresult) -> nsresult {
         let result = if status == NS_OK {
             Ok(())
         } else {
             Err(format!("connection failed: 0x{:08x}", status.0))
         };
 
-        let input = happy_eyeballs::Input::ConnectionResult { address, result };
-        self.inner.process_input(input);
+        let input = happy_eyeballs::Input::ConnectionResult {
+            id: id.into(),
+            result,
+        };
+        self.inner.process_input(input, Instant::now());
 
         NS_OK
     }
 
+    // TODO: Split data into single purpose thinvecs
     fn process_output(&mut self, ret_event: &mut Output, data: &mut ThinVec<u8>) -> nsresult {
         let out = self.inner.process_output(std::time::Instant::now());
         data.clear();
         match out {
             Some(happy_eyeballs::Output::SendDnsQuery {
+                id,
                 hostname: _hostname,
                 record_type,
             }) => {
                 *ret_event = Output::SendDnsQuery {
+                    id: id.into(),
                     record_type: record_type.into(),
                 };
             }
@@ -246,7 +201,7 @@ impl HappyEyeballs {
                     }),
                 };
             }
-            Some(happy_eyeballs::Output::AttemptConnection { endpoint }) => {
+            Some(happy_eyeballs::Output::AttemptConnection { id, endpoint }) => {
                 let addr_str = endpoint.address.ip().to_string();
                 let addr_len = addr_str.len() as u32;
                 data.extend_from_slice(addr_str.as_bytes());
@@ -257,6 +212,7 @@ impl HappyEyeballs {
                     0
                 };
                 *ret_event = Output::AttemptConnection {
+                    id: id.into(),
                     protocol: endpoint.protocol.into(),
                     port: endpoint.address.port(),
                     addr_len,
@@ -283,6 +239,7 @@ impl HappyEyeballs {
     }
 }
 
+// TODO: Move up. New is always at the top.
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_new(
     result: &mut *const HappyEyeballs,
@@ -333,6 +290,7 @@ pub extern "C" fn happy_eyeballs_new(
     }
 }
 
+// TODO: Expose ip and port.
 #[repr(C)]
 pub struct AltSvc {
     pub protocol: Protocol,
@@ -354,7 +312,7 @@ pub enum Protocol {
 }
 
 #[repr(C)]
-pub enum ProtocolCombination {
+pub enum ConnectionAttemptProtocols {
     H3 = 0,
     H2OrH1 = 1,
     H2 = 2,
@@ -391,18 +349,29 @@ impl From<happy_eyeballs::DnsRecordType> for DnsRecordType {
     }
 }
 
-impl From<happy_eyeballs::ProtocolCombination> for ProtocolCombination {
-    fn from(v: happy_eyeballs::ProtocolCombination) -> Self {
+impl From<happy_eyeballs::ConnectionAttemptProtocols> for ConnectionAttemptProtocols {
+    fn from(v: happy_eyeballs::ConnectionAttemptProtocols) -> Self {
         match v {
-            happy_eyeballs::ProtocolCombination::H3 => Self::H3,
-            happy_eyeballs::ProtocolCombination::H2OrH1 => Self::H2OrH1,
-            happy_eyeballs::ProtocolCombination::H2 => Self::H2,
-            happy_eyeballs::ProtocolCombination::H1 => Self::H1,
+            happy_eyeballs::ConnectionAttemptProtocols::H3 => Self::H3,
+            happy_eyeballs::ConnectionAttemptProtocols::H2OrH1 => Self::H2OrH1,
+            happy_eyeballs::ConnectionAttemptProtocols::H2 => Self::H2,
+            happy_eyeballs::ConnectionAttemptProtocols::H1 => Self::H1,
         }
     }
 }
 
-impl From<happy_eyeballs::Protocol> for ProtocolCombination {
+impl From<ConnectionAttemptProtocols> for happy_eyeballs::ConnectionAttemptProtocols {
+    fn from(v: ConnectionAttemptProtocols) -> Self {
+        match v {
+            ConnectionAttemptProtocols::H3 => Self::H3,
+            ConnectionAttemptProtocols::H2OrH1 => Self::H2OrH1,
+            ConnectionAttemptProtocols::H2 => Self::H2,
+            ConnectionAttemptProtocols::H1 => Self::H1,
+        }
+    }
+}
+
+impl From<happy_eyeballs::Protocol> for ConnectionAttemptProtocols {
     fn from(v: happy_eyeballs::Protocol) -> Self {
         match v {
             happy_eyeballs::Protocol::H3 => Self::H3,
@@ -424,9 +393,9 @@ pub struct ServiceInfoFFI {
 
 #[repr(C)]
 pub enum Output {
-    SendDnsQuery { record_type: DnsRecordType },
+    SendDnsQuery { id: u64, record_type: DnsRecordType },
     Timer { duration_ms: u64 },
-    AttemptConnection { protocol: ProtocolCombination, port: u16, addr_len: u32, ech_config_len: u32 },
+    AttemptConnection { id: u64, protocol: ConnectionAttemptProtocols, port: u16, addr_len: u32, ech_config_len: u32 },
     CancelConnection { port: u16 },
     Succeeded,
     Failed,
@@ -436,37 +405,37 @@ pub enum Output {
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_dns_response_a(
     he: &mut HappyEyeballs,
-    hostname: *const nsACString,
+    id: u64,
     addrs: &ThinVec<NetAddr>,
 ) -> nsresult {
-    he.process_dns_response_a(hostname, addrs)
+    he.process_dns_response_a(id, addrs)
 }
 
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_dns_response_aaaa(
     he: &mut HappyEyeballs,
-    hostname: *const nsACString,
+    id: u64,
     addrs: &ThinVec<NetAddr>,
 ) -> nsresult {
-    he.process_dns_response_aaaa(hostname, addrs)
+    he.process_dns_response_aaaa(id, addrs)
 }
 
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_dns_response_https(
     he: &mut HappyEyeballs,
-    hostname: *const nsACString,
+    id: u64,
     service_infos: &ThinVec<ServiceInfoFFI>,
 ) -> nsresult {
-    he.process_dns_response_https(hostname, service_infos)
+    he.process_dns_response_https(id, service_infos)
 }
 
 #[no_mangle]
 pub extern "C" fn happy_eyeballs_process_connection_result(
     he: &mut HappyEyeballs,
-    addr: *const NetAddr,
+    id: u64,
     status: nsresult,
 ) -> nsresult {
-    he.process_connection_result(addr, status)
+    he.process_connection_result(id, status)
 }
 
 #[no_mangle]

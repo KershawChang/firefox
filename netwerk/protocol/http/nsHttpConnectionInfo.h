@@ -118,7 +118,7 @@ class nsHttpConnectionInfo final : public ARefBase {
   already_AddRefed<nsHttpConnectionInfo> CloneAndAdoptHTTPSSVCRecord(
       nsISVCBRecord* aRecord) const;
   already_AddRefed<nsHttpConnectionInfo> CloneAndAdoptPortAndAlpn(
-      uint16_t aPort, ProtocolCombination aProtocol) const;
+      uint16_t aPort, ConnectionAttemptProtocols aProtocol) const;
   void CloneAsDirectRoute(nsHttpConnectionInfo** outCI,
                           nsProxyInfo* aProxyInfo = nullptr);
 
