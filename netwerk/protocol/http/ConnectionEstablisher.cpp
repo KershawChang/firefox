@@ -193,9 +193,8 @@ NS_IMPL_ISUPPORTS(ConnectionEstablisher, nsITransportEventSink,
                   nsIInterfaceRequestor)
 
 ConnectionEstablisher::ConnectionEstablisher(nsHttpConnectionInfo* aConnInfo,
-                                             NetAddrKey aAddrKey,
-                                             uint32_t aCaps)
-    : mConnInfo(aConnInfo), mAddrKey(aAddrKey), mCaps(aCaps) {
+                                             NetAddr aAddr, uint32_t aCaps)
+    : mConnInfo(aConnInfo), mAddr(aAddr), mCaps(aCaps) {
   LOG(("ConnectionEstablisher ctor:%p", this));
 }
 
@@ -308,9 +307,9 @@ NS_IMPL_ISUPPORTS_INHERITED(TCPConnectionEstablisher, ConnectionEstablisher,
                             nsIOutputStreamCallback)
 
 TCPConnectionEstablisher::TCPConnectionEstablisher(
-    nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey, uint32_t aCaps,
+    nsHttpConnectionInfo* aConnInfo, NetAddr aAddr, uint32_t aCaps,
     bool aSpeculative, bool aAllow1918)
-    : ConnectionEstablisher(aConnInfo, aAddrKey, aCaps),
+    : ConnectionEstablisher(aConnInfo, aAddr, aCaps),
       mSpeculative(aSpeculative),
       mAllow1918(aAllow1918) {}
 
@@ -318,7 +317,7 @@ TCPConnectionEstablisher::~TCPConnectionEstablisher() = default;
 
 bool TCPConnectionEstablisher::Start(DoneCallback&& aCallback) {
   mCallback = std::move(aCallback);
-  mAddrRecord = new SingleDNSAddrRecord(mAddrKey.mAddr, nullptr);
+  mAddrRecord = new SingleDNSAddrRecord(mAddr, nullptr);
 
   nsresult rv = CreateAndConfigureSocketTransport();
   if (NS_FAILED(rv)) {
@@ -593,8 +592,8 @@ TCPConnectionEstablisher::OnOutputStreamReady(nsIAsyncOutputStream* aOut) {
 // -------------------- UDPConnectionEstablisher --------------------
 
 UDPConnectionEstablisher::UDPConnectionEstablisher(
-    nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey, uint32_t aCaps)
-    : ConnectionEstablisher(aConnInfo, aAddrKey, aCaps) {
+    nsHttpConnectionInfo* aConnInfo, NetAddr aAddr, uint32_t aCaps)
+    : ConnectionEstablisher(aConnInfo, aAddr, aCaps) {
   LOG(("UDPConnectionEstablisher ctor:%p", this));
 }
 
@@ -605,7 +604,7 @@ UDPConnectionEstablisher::~UDPConnectionEstablisher() {
 bool UDPConnectionEstablisher::Start(DoneCallback&& aCallback) {
   LOG(("UDPConnectionEstablisher::Start %p", this));
   mCallback = std::move(aCallback);
-  mAddrRecord = new SingleDNSAddrRecord(mAddrKey.mAddr, nullptr);
+  mAddrRecord = new SingleDNSAddrRecord(mAddr, nullptr);
 
   nsresult rv = CreateAndConfigureUDPConn();
   if (NS_FAILED(rv)) {

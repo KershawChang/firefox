@@ -20,6 +20,25 @@ class HappyEyeballs;
 class HttpConnectionUDP;
 class nsHttpConnection;
 
+struct DnsRequestInfo {
+  uint64_t mId = 0;
+  nsCOMPtr<nsICancelable> mRequest;
+  nsCOMPtr<nsIDNSRecord> mRecord;
+
+  void Cancel() {
+    if (mRequest) {
+      mRequest->Cancel(NS_ERROR_ABORT);
+      mRequest = nullptr;
+    }
+  }
+
+  void Clear() {
+    mId = 0;
+    mRequest = nullptr;
+    mRecord = nullptr;
+  }
+};
+
 class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                              public nsIDNSListener,
                                              public nsITimerCallback,
@@ -51,7 +70,8 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                   const nsTArray<NetAddr>& aAddresses);
   nsresult ProcessDnsResponseHTTPS(
       const nsACString& aHost, const nsTArray<ServiceInfoFFI>& aServiceInfos);
-  nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus);
+  nsresult ProcessConnectionResult(const NetAddr& aAddr, nsresult aStatus,
+                                   uint64_t aId);
   nsresult ProcessHappyEyeballsOutput();
   // DNS lookups
   Result<nsIDNSService::DNSFlags, nsresult> SetupDnsFlags(DnsRecordType aType);
@@ -64,16 +84,16 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
 
   // Connection Attempt
   nsresult EstablishTCPConnection(NetAddr aAddr, uint16_t aPort,
-                                  nsTArray<uint8_t>&& aEchConfig);
+                                  nsTArray<uint8_t>&& aEchConfig, uint64_t aId);
   void HandleTCPConnectionResult(
       Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
-      TCPConnectionEstablisher* aEstablisher);
+      TCPConnectionEstablisher* aEstablisher, uint64_t aId);
   void CancelConnection(NetAddr aAddr);
   nsresult EstablishUDPConnection(NetAddr aAddr, uint16_t aPort,
-                                  nsTArray<uint8_t>&& aEchConfig);
+                                  nsTArray<uint8_t>&& aEchConfig, uint64_t aId);
   void HandleUDPConnectionResult(
       Result<RefPtr<HttpConnectionBase>, nsresult> aResult,
-      UDPConnectionEstablisher* aEstablisher);
+      UDPConnectionEstablisher* aEstablisher, uint64_t aId);
 
   // Timer
   void SetupTimer(uint64_t aTimeout);
@@ -85,14 +105,12 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   const HappyEyeballs* mHappyEyeballs = nullptr;
 
   nsCString mHost;
-  nsCOMPtr<nsICancelable> mARequest;
-  nsCOMPtr<nsICancelable> mAAAARequest;
-  nsCOMPtr<nsICancelable> mHTTPSRequest;
-  nsCOMPtr<nsIDNSAddrRecord> mARecord;
-  nsCOMPtr<nsIDNSAddrRecord> mAAAARecord;
-  nsCOMPtr<nsIDNSHTTPSSVCRecord> mHTTPSRecord;
 
-  nsRefPtrHashtable<NetAddrKey, ConnectionEstablisher>
+  DnsRequestInfo mARequestInfo;
+  DnsRequestInfo mAAAARequestInfo;
+  DnsRequestInfo mHTTPSRequestInfo;
+
+  nsRefPtrHashtable<nsUint64HashKey, ConnectionEstablisher>
       mConnectionEstablisherTable;
   RefPtr<HttpConnectionBase> mOutputConn;
 

@@ -28,13 +28,13 @@ class ConnectionEstablisher : public nsITransportEventSink,
   using DoneCallback =
       std::function<void(Result<RefPtr<HttpConnectionBase>, nsresult>)>;
 
-  ConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey,
+  ConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddr aAddr,
                         uint32_t aCaps);
 
   virtual bool Start(DoneCallback&& aCallback) = 0;
   virtual void Close(nsresult aReason) = 0;
   virtual void ResetSpeculativeFlags() = 0;
-  const NetAddrKey& AddrKey() const { return mAddrKey; }
+  const NetAddr& Addr() const { return mAddr; }
   void ClearResultConnection();
   virtual bool IsUDP() const { return false; }
 
@@ -54,7 +54,7 @@ class ConnectionEstablisher : public nsITransportEventSink,
   void MaybeSetConnectingDone();
 
   RefPtr<nsHttpConnectionInfo> mConnInfo;
-  NetAddrKey mAddrKey;
+  NetAddr mAddr;
   nsCOMPtr<nsIDNSAddrRecord> mAddrRecord;
   uint32_t mCaps = 0;
   bool mFinished = false;
@@ -73,7 +73,7 @@ class TCPConnectionEstablisher : public ConnectionEstablisher,
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIOUTPUTSTREAMCALLBACK
 
-  TCPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey,
+  TCPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddr aAddr,
                            uint32_t aCaps, bool aSpeculative, bool aAllow1918);
 
   // Starts creating the socket transport + streams, and arms AsyncWait.
@@ -102,7 +102,7 @@ class UDPConnectionEstablisher : public ConnectionEstablisher {
   NS_INLINE_DECL_REFCOUNTING_INHERITED(UDPConnectionEstablisher,
                                        ConnectionEstablisher)
 
-  UDPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddrKey aAddrKey,
+  UDPConnectionEstablisher(nsHttpConnectionInfo* aConnInfo, NetAddr aAddr,
                            uint32_t aCaps);
 
   bool Start(DoneCallback&& aCallback) override;
