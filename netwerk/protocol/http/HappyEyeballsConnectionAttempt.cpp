@@ -983,9 +983,10 @@ void HappyEyeballsConnectionAttempt::OnSucceeded() {
 
   RefPtr<nsHttpConnection> connTCP = do_QueryObject(mOutputConn);
   if (connTCP) {
-    // If the original request had H3 alt-svc but a TCP connection won,
-    // remove the Alt-Used header since we're not using the alt-svc route.
-    if (mConnInfo->IsHttp3()) {
+    // If the original request had an alt-svc route but a direct TCP
+    // connection won, remove the Alt-Used header since we're not using
+    // the alt-svc route.
+    if (!mConnInfo->GetRoutedHost().IsEmpty()) {
       if (nsHttpTransaction* trans = mTransaction->QueryHttpTransaction()) {
         trans->RemoveAltSvcUsedHeader();
       }

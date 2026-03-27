@@ -2150,14 +2150,6 @@ nsresult nsHttpChannel::InitTransaction() {
   EnsureRequestContext();
 
   HttpTrafficCategory category = CreateTrafficCategory();
-  std::function<void(TransactionObserverResult&&)> observer;
-  if (mTransactionObserver) {
-    observer = [transactionObserver{std::move(mTransactionObserver)}](
-                   TransactionObserverResult&& aResult) {
-      transactionObserver->Complete(aResult.versionOk(), aResult.authOk(),
-                                    aResult.closeReason());
-    };
-  }
   mTransaction->SetIsForWebTransport(!!mWebTransportSessionEventListener);
 
   RefPtr<mozilla::dom::BrowsingContext> bc;
@@ -2194,7 +2186,7 @@ nsresult nsHttpChannel::InitTransaction() {
       LoadUploadStreamHasHeaders(), GetCurrentSerialEventTarget(), callbacks,
       this, mBrowserId, category, mRequestContext, mClassOfService,
       mInitialRwin, LoadResponseTimeoutEnabled(), mChannelId,
-      std::move(observer), parentAddressSpace, mLNAPermission);
+      nullptr, parentAddressSpace, mLNAPermission);
   if (NS_FAILED(rv)) {
     mTransaction = nullptr;
     return rv;
