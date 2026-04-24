@@ -54,6 +54,7 @@ NS_INTERFACE_MAP_BEGIN(HappyEyeballsConnectionAttempt)
   NS_INTERFACE_MAP_ENTRY(nsITimerCallback)
   NS_INTERFACE_MAP_ENTRY(nsINamed)
   NS_INTERFACE_MAP_ENTRY(nsIDNSListener)
+  NS_INTERFACE_MAP_ENTRY_CONCRETE(HappyEyeballsConnectionAttempt)
 NS_INTERFACE_MAP_END
 
 HappyEyeballsConnectionAttempt::HappyEyeballsConnectionAttempt(
@@ -549,6 +550,28 @@ void HappyEyeballsConnectionAttempt::HandleTCPConnectionResult(
   ProcessConnectionResult(addr, NS_OK, aId);
 }
 
+void HappyEyeballsConnectionAttempt::AdoptWinner(
+    HappyEyeballsTransaction* aWinner) {
+  MOZ_ASSERT(OnSocketThread());
+  if (!aWinner || aWinner->IsAdopted()) {
+    return;
+  }
+
+  nsHttpTransaction* realTxn = RealHttpTransaction();
+  if (!realTxn) {
+    return;
+  }
+
+  RefPtr<ConnectionEntry> entry(mEntry);
+  if (entry) {
+    RefPtr<PendingTransactionInfo> pendingInfo =
+        gHttpHandler->ConnMgr()->FindTransactionHelper(
+            /*removeWhenFound*/ true, entry, realTxn);
+    (void)pendingInfo;
+  }
+  aWinner->Adopt(realTxn);
+}
+
 already_AddRefed<HappyEyeballsTransaction>
 HappyEyeballsConnectionAttempt::CreateAttemptTransaction(
     nsHttpConnectionInfo* aInfo) {
@@ -556,11 +579,15 @@ HappyEyeballsConnectionAttempt::CreateAttemptTransaction(
   if (mTransaction) {
     mTransaction->GetSecurityCallbacks(getter_AddRefs(callbacks));
   }
+  if (!mZeroRttHandle) {
+    mZeroRttHandle = new ZeroRttHandle(this);
+  }
   RefPtr<HappyEyeballsTransaction> trans = new HappyEyeballsTransaction(
       aInfo, callbacks, mCaps,
       [self = RefPtr{this}](nsITransport* t, nsresult s, int64_t p) {
         self->MaybeSendTransportStatus(s, t, p);
-      });
+      },
+      mZeroRttHandle);
   return trans.forget();
 }
 
@@ -748,6 +775,10 @@ void HappyEyeballsConnectionAttempt::Abandon() {
   }
   mTimer = nullptr;
 
+  if (mZeroRttHandle) {
+    mZeroRttHandle->Cleanup();
+  }
+
   mEntry = nullptr;
 }
 
@@ -891,6 +922,25 @@ void HappyEyeballsConnectionAttempt::OnSucceeded() {
   }
   mOutputTrans = nullptr;
 
+  // Fallback for the case where ShouldDisqualify didn't fire. A racer that did
+  // 0-RTT advanced the real txn's request stream; its flags are half-set and
+  // the winner isn't a 0-RTT racer. Tell the real txn the 0-RTT attempt was
+  // effectively rejected — FinishAdopted0RTT(restart=true) rewinds the stream
+  // to 0 and marks mDoNotTryEarlyData / mEarlyDataWasAvailable so the real txn
+  // re-sends a fresh request on the winning conn.
+  if (mZeroRttHandle && mZeroRttHandle->AnyStarted() &&
+      (!mZeroRttHandle->Winner() || !mZeroRttHandle->Winner()->IsAdopted())) {
+    if (nsHttpTransaction* realTxn = mTransaction->QueryHttpTransaction()) {
+      realTxn->FinishAdopted0RTT(/*aRestart=*/true);
+    }
+  }
+
+  // Adopted: real txn is on the conn and already out of the pending
+  // queue. Skip ProcessTCPConn's pending-queue branch — on H1 it
+  // would otherwise reclaim the live conn to the idle pool; on H2/H3
+  // it's a no-op.
+  bool alreadyOnConn = mZeroRttHandle && mZeroRttHandle->Winner() &&
+                       mZeroRttHandle->Winner()->IsAdopted();
   RefPtr<nsHttpConnection> connTCP = do_QueryObject(mOutputConn);
   if (connTCP) {
     // If the original request had an alt-svc route but a direct TCP
@@ -901,10 +951,11 @@ void HappyEyeballsConnectionAttempt::OnSucceeded() {
         trans->RemoveAltSvcUsedHeader();
       }
     }
-    ProcessTCPConn(connTCP, entry, /*aTransactionAlreadyOnConn*/ false);
+
+    ProcessTCPConn(connTCP, entry, alreadyOnConn);
   } else {
     RefPtr<HttpConnectionUDP> connUDP = do_QueryObject(mOutputConn);
-    ProcessUDPConn(connUDP, entry, /*aTransactionAlreadyOnConn*/ false);
+    ProcessUDPConn(connUDP, entry, alreadyOnConn);
   }
 
   mOutputConn = nullptr;

@@ -48,11 +48,16 @@ class DnsRequestInfo final {
   nsCOMPtr<nsICancelable> mRequest;
 };
 
+#define NS_HAPPYEYEBALLSCONNECTIONATTEMPT_IID \
+  {0x3d2e8a41, 0x9c5b, 0x4f6e, {0xa1, 0x02, 0x2b, 0x7c, 0x8e, 0x4d, 0x6f, 0x90}}
+
 class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
                                              public nsIDNSListener,
                                              public nsITimerCallback,
                                              public nsINamed {
  public:
+  NS_INLINE_DECL_STATIC_IID(NS_HAPPYEYEBALLSCONNECTIONATTEMPT_IID)
+
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_NSIDNSLISTENER
   NS_DECL_NSITIMERCALLBACK
@@ -79,6 +84,19 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   // claimer is left in the pending queue with onlyReused=true forever.
   void Unclaim() override {}
   uint32_t UnconnectedUDPConnsLength() const override;
+
+  // Real transaction accessor, used by the shared ZeroRttHandle.
+  nsHttpTransaction* RealHttpTransaction() const {
+    return mTransaction ? mTransaction->QueryHttpTransaction() : nullptr;
+  }
+
+  // Called by ZeroRttHandle::Finish0RTT on the winning HT. Pulls the
+  // real nsHttpTransaction out of the pending queue (so a reject-path
+  // real_txn.Close → Restart doesn't trip the pending-queue assertion,
+  // and so OnSucceeded won't re-dispatch it) and calls
+  // aWinner->Adopt(). No-op if the HE race was started without a
+  // real txn yet (speculative entry) or the txn can't be queried.
+  void AdoptWinner(HappyEyeballsTransaction* aWinner);
 
  private:
   ~HappyEyeballsConnectionAttempt();
@@ -157,6 +175,10 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   nsresult mLastConnectionError = NS_OK;
   nsresult mLastDnsError = NS_OK;
   nsTHashSet<uint32_t> mSentTransportStatuses;
+
+  // Shared 0-RTT coordinator. Created lazily (first time we hand out a
+  // per-attempt HappyEyeballsTransaction) and passed to every racer.
+  RefPtr<ZeroRttHandle> mZeroRttHandle;
 
   DnsMetadata mDnsMetadata;
   bool mTRRInfoForwarded = false;

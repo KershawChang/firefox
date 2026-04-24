@@ -405,16 +405,27 @@ void TCPConnectionEstablisher::Close(nsresult aReason) {
 
   mHandle = nullptr;
   if (mResultConn) {
-    LOG(("TCPConnectionEstablisher::Close closing connection %p",
-         mResultConn.get()));
-    // HappyEyeballsTransaction is speculative — the real transaction is
-    // never driving this conn, so we always tear down the conn here.
-    // Use CloseTransaction rather than Close to properly clean up the
-    // SPDY session: if we only called Close, an Http2Session in
-    // mSpdySession/mTransaction would never be released and the conn
-    // would stay alive indefinitely without a pending socket read to
-    // trigger CloseTransaction naturally.
-    mResultConn->CloseTransaction(mResultConn->Transaction(), aReason);
+    // If the HT on this conn has been adopted, the conn is already
+    // driving the real nsHttpTransaction — tearing it down here would
+    // close the real txn. Just mark the conn non-reusable and let it
+    // finish serving the in-flight request naturally.
+    bool adopted = mTransaction && mTransaction->IsAdopted();
+    if (adopted) {
+      LOG(("TCPConnectionEstablisher::Close %p adopted conn %p DontReuse", this,
+           mResultConn.get()));
+      mResultConn->DontReuse();
+    } else {
+      LOG(("TCPConnectionEstablisher::Close closing connection %p",
+           mResultConn.get()));
+      // HappyEyeballsTransaction is speculative — the real transaction is
+      // never driving this conn, so we always tear down the conn here.
+      // Use CloseTransaction rather than Close to properly clean up the
+      // SPDY session: if we only called Close, an Http2Session in
+      // mSpdySession/mTransaction would never be released and the conn
+      // would stay alive indefinitely without a pending socket read to
+      // trigger CloseTransaction naturally.
+      mResultConn->CloseTransaction(mResultConn->Transaction(), aReason);
+    }
     mResultConn = nullptr;
   }
 
@@ -682,11 +693,22 @@ void UDPConnectionEstablisher::Close(nsresult aReason) {
 
   mHandle = nullptr;
   if (mResultConn) {
-    LOG(("UDPConnectionEstablisher::Close closing connection %p",
-         mResultConn.get()));
-    // TODO: for some cases we might want to exclude HTTP/3.
-    mResultConn->SetDontExclude();
-    mResultConn->Close(aReason);
+    // If the HT on this conn has been adopted, the conn is already
+    // driving the real nsHttpTransaction — tearing it down here would
+    // close the real txn. Just mark the conn non-reusable and let it
+    // finish serving the in-flight request naturally.
+    bool adopted = mTransaction && mTransaction->IsAdopted();
+    if (adopted) {
+      LOG(("UDPConnectionEstablisher::Close %p adopted conn %p DontReuse", this,
+           mResultConn.get()));
+      mResultConn->DontReuse();
+    } else {
+      LOG(("UDPConnectionEstablisher::Close closing connection %p",
+           mResultConn.get()));
+      // TODO: for some cases we might want to exclude HTTP/3.
+      mResultConn->SetDontExclude();
+      mResultConn->Close(aReason);
+    }
     mResultConn = nullptr;
   }
 

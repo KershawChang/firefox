@@ -699,6 +699,20 @@ nsresult nsHttpConnection::AddTransaction(nsAHttpTransaction* httpTransaction,
   return NS_OK;
 }
 
+void nsHttpConnection::SwapTransaction(nsAHttpTransaction* aOld,
+                                       nsAHttpTransaction* aNew) {
+  MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+  MOZ_ASSERT(aOld && aNew);
+  LOG(
+      ("nsHttpConnection::SwapTransaction [this=%p] aOld=%p -> aNew=%p "
+       "mTransaction=%p",
+       this, aOld, aNew, mTransaction.get()));
+  if (mTransaction != aOld) {
+    return;
+  }
+  mTransaction = aNew;
+}
+
 nsresult nsHttpConnection::CreateTunnelStream(
     nsAHttpTransaction* httpTransaction, HttpConnectionBase** aHttpConnection,
     bool aIsExtendedCONNECT) {
