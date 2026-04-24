@@ -459,7 +459,17 @@ void HappyEyeballsConnectionAttempt::DNSLookup(
     nsIDNSService::DNSFlags flags = aFlags.unwrap();
     switch (aType) {
       case happy_eyeballs::DnsRecordType::Https: {
-        if (mCaps & NS_HTTP_DISALLOW_HTTPS_RR) {
+        // Skip the HTTPS RR lookup in two cases:
+        //   1. Plain-HTTP origin (!FirstHopSSL). HTTPS RR is an HTTPS-upgrade
+        //      mechanism; nsHttpChannel normally does the upgrade before
+        //      creating connection, but some edge cases slip through with an
+        //      http:// conn info.
+        //   2. NS_HTTP_DISALLOW_HTTPS_RR is set.
+        // Setting rv = NS_ERROR_NOT_AVAILABLE feeds an empty HTTPS RR to the
+        // state machine instead of issuing a query.
+        if (!mConnInfo->FirstHopSSL() ||
+            (!StaticPrefs::network_dns_force_use_https_rr() &&
+             (mCaps & NS_HTTP_DISALLOW_HTTPS_RR))) {
           rv = NS_ERROR_NOT_AVAILABLE;
         } else {
           nsCOMPtr<nsIDNSAdditionalInfo> info;
@@ -1323,7 +1333,7 @@ void HappyEyeballsConnectionAttempt::SetupTimer(uint64_t aTimeout) {
   }
 
   LOG(("HappyEyeballsConnectionAttempt::SetupTimer to %" PRIu64 "ms [this=%p].",
-        aTimeout, this));
+       aTimeout, this));
 
   if (!mTimer) {
     // This can only fail on OOM and we'd crash.

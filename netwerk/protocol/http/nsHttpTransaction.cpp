@@ -356,7 +356,9 @@ nsresult nsHttpTransaction::Init(
               nsIOService::gDefaultSegmentSize,
               nsIOService::gDefaultSegmentCount);
 
-  bool forceUseHTTPSRR = StaticPrefs::network_dns_force_use_https_rr();
+  // HTTPS RR is handled by HappyEyeballsConnectionAttempt.
+  bool forceUseHTTPSRR = StaticPrefs::network_dns_force_use_https_rr() &&
+                         !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS);
   if ((StaticPrefs::network_dns_use_https_rr_as_altsvc() &&
        !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR) &&
        !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) ||
