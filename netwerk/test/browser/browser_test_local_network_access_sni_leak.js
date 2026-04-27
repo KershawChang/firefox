@@ -138,6 +138,13 @@ function waitForFetchComplete(port) {
 
 let gServer;
 
+const kExpectedConnsBeforePromptResponse = Services.prefs.getBoolPref(
+  "network.http.happy_eyeballs_enabled",
+  false
+)
+  ? 0
+  : 1;
+
 add_setup(async function () {
   await SpecialPowers.pushPrefEnv({
     set: [
@@ -182,8 +189,8 @@ add_task(async function test_lna_block_no_sni_leak() {
 
   Assert.equal(
     await gServer.connectionCount(),
-    1,
-    "Only 1 TCP connection should have been made before LNA prompt response"
+    kExpectedConnsBeforePromptResponse,
+    `${kExpectedConnsBeforePromptResponse} TCP connection(s) expected before LNA prompt response`
   );
 
   Assert.deepEqual(
@@ -200,7 +207,7 @@ add_task(async function test_lna_block_no_sni_leak() {
 
   Assert.equal(
     await gServer.connectionCount(),
-    1,
+    kExpectedConnsBeforePromptResponse,
     "No new TCP connections after blocking the LNA prompt"
   );
 
@@ -242,8 +249,8 @@ add_task(async function test_lna_accept_receives_sni() {
 
   Assert.equal(
     await gServer.connectionCount(),
-    1,
-    "Only 1 TCP connection should have been made before LNA prompt response"
+    kExpectedConnsBeforePromptResponse,
+    `${kExpectedConnsBeforePromptResponse} TCP connection(s) expected before LNA prompt response`
   );
 
   Assert.deepEqual(

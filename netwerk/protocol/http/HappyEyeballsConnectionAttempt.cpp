@@ -420,7 +420,15 @@ nsresult HappyEyeballsConnectionAttempt::CheckLNA(
     return NS_OK;
   }
 
-  auto addrSpace = peerAddr.GetIpAddressSpace();
+  return CheckLNAForAddr(peerAddr);
+}
+
+nsresult HappyEyeballsConnectionAttempt::CheckLNAForAddr(const NetAddr& aAddr) {
+  if (!mConnInfo->FirstHopSSL() || mConnInfo->UsingProxy()) {
+    return NS_OK;
+  }
+
+  auto addrSpace = aAddr.GetIpAddressSpace();
   if (addrSpace != nsILoadInfo::IPAddressSpace::Local &&
       addrSpace != nsILoadInfo::IPAddressSpace::Private) {
     return NS_OK;
@@ -429,7 +437,7 @@ nsresult HappyEyeballsConnectionAttempt::CheckLNA(
   if (mTransaction &&
       !mTransaction->AllowedToConnectToIpAddressSpace(addrSpace)) {
     LOG((
-        "HappyEyeballsConnectionAttempt::CheckLNA %p "
+        "HappyEyeballsConnectionAttempt::CheckLNAForAddr %p "
         "blocking connection to %s address space",
         this,
         addrSpace == nsILoadInfo::IPAddressSpace::Local ? "local" : "private"));
@@ -604,6 +612,11 @@ HappyEyeballsConnectionAttempt::CreateAttemptTransaction(
 nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
     NetAddr aAddr, uint16_t aPort, nsTArray<uint8_t>&& aEchConfig,
     uint64_t aId) {
+  if (NS_FAILED(CheckLNAForAddr(aAddr))) {
+    ProcessConnectionResult(aAddr, NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED, aId);
+    return NS_OK;
+  }
+
   // TODO: we always use happy_eyeballs::ConnectionAttemptHttpVersions::H2OrH1
   // for now. Do we really want to race H2 and H1?
   RefPtr<nsHttpConnectionInfo> info = mConnInfo->CloneAndAdoptPortAndAlpn(
@@ -650,6 +663,11 @@ nsresult HappyEyeballsConnectionAttempt::EstablishTCPConnection(
 nsresult HappyEyeballsConnectionAttempt::EstablishUDPConnection(
     NetAddr aAddr, uint16_t aPort, nsTArray<uint8_t>&& aEchConfig,
     uint64_t aId) {
+  if (NS_FAILED(CheckLNAForAddr(aAddr))) {
+    ProcessConnectionResult(aAddr, NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED, aId);
+    return NS_OK;
+  }
+
   RefPtr<nsHttpConnectionInfo> info = mConnInfo->CloneAndAdoptPortAndAlpn(
       aPort, happy_eyeballs::ConnectionAttemptHttpVersions::H3);
   if (!aEchConfig.IsEmpty()) {
