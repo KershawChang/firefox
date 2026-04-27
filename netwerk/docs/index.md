@@ -43,6 +43,7 @@ Necko Bird’s-eye View  <https://docs.google.com/presentation/d/1BRCK4WMYg-dUy0
 Gecko HTTP Walkthrough <https://docs.google.com/presentation/d/1iuYNLJfz24MN9SS5ljjhG07452-kZKtXmOeGjcc1-lU/>
 http/prioritization.md
 http/resource_tailing.md
+http/HappyEyeballs.md
 ```
 
 ### Necko Features
