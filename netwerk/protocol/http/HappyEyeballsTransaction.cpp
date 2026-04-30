@@ -32,8 +32,12 @@ HappyEyeballsTransaction::HappyEyeballsTransaction(
                              /* reportActivity */ false),
       mStatusForwarder(std::move(aStatusForwarder)),
       mZeroRttHandle(aZeroRttHandle) {
-  LOG(("HappyEyeballsTransaction ctor %p handle=%p", this,
-       mZeroRttHandle.get()));
+  LOG1(("HappyEyeballsTransaction ctor %p handle=%p", this,
+        mZeroRttHandle.get()));
+}
+
+HappyEyeballsTransaction::~HappyEyeballsTransaction() {
+  LOG1(("HappyEyeballsTransaction dtor %p", this));
 }
 
 void HappyEyeballsTransaction::Adopt(nsHttpTransaction* aRealTxn) {

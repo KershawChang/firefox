@@ -61,7 +61,7 @@ HappyEyeballsConnectionAttempt::HappyEyeballsConnectionAttempt(
     nsHttpConnectionInfo* ci, nsAHttpTransaction* trans, uint32_t caps,
     bool speculative, bool urgentStart)
     : ConnectionAttempt(ci, trans, caps, speculative, urgentStart) {
-  LOG(("HappyEyeballsConnectionAttempt ctor %p", this));
+  LOG1(("HappyEyeballsConnectionAttempt ctor %p", this));
   if (mConnInfo->GetRoutedHost().IsEmpty()) {
     mHost = mConnInfo->GetOrigin();
   } else {
@@ -75,7 +75,7 @@ HappyEyeballsConnectionAttempt::HappyEyeballsConnectionAttempt(
 }
 
 HappyEyeballsConnectionAttempt::~HappyEyeballsConnectionAttempt() {
-  LOG(("HappyEyeballsConnectionAttempt dtor %p", this));
+  LOG1(("HappyEyeballsConnectionAttempt dtor %p", this));
 }
 
 nsresult HappyEyeballsConnectionAttempt::CreateHappyEyeballs(

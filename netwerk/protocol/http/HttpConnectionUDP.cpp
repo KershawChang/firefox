@@ -183,11 +183,11 @@ class Http3ConnectTransaction : public ConnectUDPTransaction {
 //-----------------------------------------------------------------------------
 
 HttpConnectionUDP::HttpConnectionUDP() : mHttpHandler(gHttpHandler) {
-  LOG(("Creating HttpConnectionUDP @%p\n", this));
+  LOG1(("Creating HttpConnectionUDP @%p\n", this));
 }
 
 HttpConnectionUDP::~HttpConnectionUDP() {
-  LOG(("Destroying HttpConnectionUDP @%p\n", this));
+  LOG1(("Destroying HttpConnectionUDP @%p\n", this));
 
   if (mForceSendTimer) {
     mForceSendTimer->Cancel();

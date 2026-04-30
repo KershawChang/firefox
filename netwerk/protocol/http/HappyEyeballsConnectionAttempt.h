@@ -73,15 +73,9 @@ class HappyEyeballsConnectionAttempt final : public ConnectionAttempt,
   void OnTimeout() override;
   void PrintDiagnostics(nsCString& log) override;
   bool Claim(nsHttpTransaction* newTransaction = nullptr) override;
-  // No-op for HE: an HE attempt is 1:1 owned by its creator transaction,
-  // so we must not let ~PendingTransactionInfo flip mFreeToUse back to
-  // true. If we did, a *different* transaction could call Claim() and
-  // succeed, but Claim()'s inner mTransaction-replace branch only fires
-  // when the existing mTransaction is a NullTransaction; for HE
-  // attempts mTransaction is always a real txn, so the new claimer ends
-  // up RememberConnectionAttempt'd to an HE whose mTransaction it isn't.
-  // OnSucceeded then dispatches the original creator and the new
-  // claimer is left in the pending queue with onlyReused=true forever.
+  // No-op: HE attempts are 1:1 owned by their creator transaction. See
+  // ConnectionAttempt::Unclaim's comment for the failure mode this
+  // override prevents.
   void Unclaim() override {}
   uint32_t UnconnectedUDPConnsLength() const override;
 

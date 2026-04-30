@@ -141,7 +141,7 @@ class HappyEyeballsTransaction final : public SpeculativeTransaction {
   bool Did0RTT() const { return m0RttRequestStreamOffset.isSome(); }
 
  private:
-  ~HappyEyeballsTransaction() override = default;
+  ~HappyEyeballsTransaction() override;
 
   // Single dispatcher for state transitions. Switches on the target
   // state, asserts the move is legal from the current state, commits

@@ -73,7 +73,7 @@ NS_INTERFACE_MAP_END
 
 Http3Session::Http3Session() {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
-  LOG(("Http3Session::Http3Session [this=%p]", this));
+  LOG1(("Http3Session::Http3Session [this=%p]", this));
 
   mCurrentBrowserId = gHttpHandler->ConnMgr()->CurrentBrowserId();
 }
@@ -426,7 +426,7 @@ void Http3Session::Shutdown() {
 }
 
 Http3Session::~Http3Session() {
-  LOG3(("Http3Session::~Http3Session %p", this));
+  LOG1(("Http3Session::~Http3Session %p", this));
 #ifndef ANDROID
   EchOutcomeTelemetry();
 #endif

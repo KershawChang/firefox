@@ -728,6 +728,9 @@ skip-if = [
 ["test_happy_eyeballs_concurrent_channels.js"]
 run-sequentially = ["true"]
 
+["test_happy_eyeballs_unclaim_strand.js"]
+run-sequentially = ["true"]
+
 ["test_happy_eyeballs_cancel_and_reuse.js"]
 skip-if = [
   "os == 'android'",
