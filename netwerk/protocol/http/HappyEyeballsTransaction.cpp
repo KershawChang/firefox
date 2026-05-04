@@ -43,7 +43,8 @@ HappyEyeballsTransaction::~HappyEyeballsTransaction() {
 void HappyEyeballsTransaction::Adopt(nsHttpTransaction* aRealTxn) {
   MOZ_ASSERT(OnSocketThread());
   MOZ_ASSERT(aRealTxn, "Adopt with null real transaction");
-  LOG(("HappyEyeballsTransaction::Adopt %p realTxn=%p", this, aRealTxn));
+  LOG(("HappyEyeballsTransaction::Adopt %p realTxn=%p did0RTT=%d", this,
+       aRealTxn, Did0RTT()));
   Transition(State::Adopted, aRealTxn);
 }
 
@@ -79,6 +80,11 @@ nsresult HappyEyeballsTransaction::WriteSegments(nsAHttpSegmentWriter* aWriter,
 }
 
 void HappyEyeballsTransaction::Close(nsresult aReason) {
+  LOG(
+      ("HappyEyeballsTransaction::Close %p reason=%x mState=%d adopted=%d "
+       "did0RTT=%d",
+       this, static_cast<uint32_t>(aReason), static_cast<int>(mState),
+       IsAdopted(), Did0RTT()));
   if (mState == State::Closed) {
     // Idempotent re-Close. SpeculativeTransaction::Close already
     // nulled mCloseCallback so a second pass is a no-op anyway.
@@ -151,6 +157,13 @@ void HappyEyeballsTransaction::Transition(State aNext,
           h1->SwapTransaction(this, mRealTxn);
         }
       }
+      // The carrier drives the real txn directly now. Releasing HT's own
+      // back-ref here matters: for H2/H3 it's RefPtr<Http{2,3}Session>, and
+      // if HT's last ref drops on Main Thread (HE often outlives Socket
+      // Thread Service shutdown), Session::Release dispatches its delete
+      // to STS and the dispatch fails during shutdown — leaking the
+      // session, its QuicSocketControl, NSS cert state, etc.
+      SetConnection(nullptr);
       break;
     }
 

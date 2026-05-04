@@ -774,7 +774,7 @@ void HappyEyeballsConnectionAttempt::CloseHttpTransaction(
 }
 
 void HappyEyeballsConnectionAttempt::Abandon() {
-  LOG(("HappyEyeballsConnectionAttempt::Abandon %p", this));
+  LOG(("HappyEyeballsConnectionAttempt::Abandon %p mDone=%d", this, mDone));
 
   mDone = true;
 
@@ -868,8 +868,10 @@ void HappyEyeballsConnectionAttempt::ProcessUDPConn(
     return;
   }
 
-  LOG(("Got connUDP:%p transactionAlreadyOnConn=%d", aConn,
-       aTransactionAlreadyOnConn));
+  LOG(
+      ("HappyEyeballsConnectionAttempt::ProcessUDPConn %p winnerConnUDP=%p "
+       "transactionAlreadyOnConn=%d",
+       this, aConn, aTransactionAlreadyOnConn));
 
   if (!mFirstConnectionStart.IsNull()) {
     TimeStamp now = TimeStamp::Now();
@@ -921,7 +923,13 @@ void HappyEyeballsConnectionAttempt::ProcessUDPConn(
 }
 
 void HappyEyeballsConnectionAttempt::OnSucceeded() {
-  LOG(("HappyEyeballsConnectionAttempt::OnSucceeded %p", this));
+  LOG(
+      ("HappyEyeballsConnectionAttempt::OnSucceeded %p winnerConn=%p "
+       "0rttAnyStarted=%d 0rttWinnerAdopted=%d",
+       this, mOutputConn.get(),
+       mZeroRttHandle ? mZeroRttHandle->AnyStarted() : false,
+       (mZeroRttHandle && mZeroRttHandle->Winner() &&
+        mZeroRttHandle->Winner()->IsAdopted())));
 
   MOZ_ASSERT(!mDone);
   mDone = true;
